@@ -36,7 +36,7 @@ function AdminSettings() {
 
     // Load settings from local storage
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem("hotelSettings");
+      const saved = localStorage.getItem("aadvikSettings");
       if (saved) {
         try {
           setSettings(prev => ({ ...prev, ...JSON.parse(saved) }));
@@ -57,7 +57,7 @@ function AdminSettings() {
 
   const handleSave = () => {
     setIsSaving(true);
-    localStorage.setItem("hotelSettings", JSON.stringify(settings));
+    localStorage.setItem("aadvikSettings", JSON.stringify(settings));
     setTimeout(() => {
       setIsSaving(false);
       setSuccessMsg("Settings saved successfully!");

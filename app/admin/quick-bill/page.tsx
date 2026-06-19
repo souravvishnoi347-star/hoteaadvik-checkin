@@ -39,7 +39,7 @@ function QuickBillPage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedSettings = localStorage.getItem("hotelSettings");
+      const savedSettings = localStorage.getItem("aadvikSettings");
       if (savedSettings) {
         try {
           setHotelSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
