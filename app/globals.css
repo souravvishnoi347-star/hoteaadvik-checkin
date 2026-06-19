@@ -24,3 +24,48 @@ body {
 *, ::before, ::after {
   border-color: #e5e7eb;
 }
+
+/* Print styles: hide everything except the invoice */
+@media print {
+  body {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Hide everything by default */
+  body > * {
+    display: none !important;
+  }
+
+  /* Show only the print container */
+  #print-container {
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+
+  #print-container * {
+    visibility: visible !important;
+  }
+
+  #invoice-template {
+    width: 100% !important;
+    min-height: auto !important;
+    padding: 10mm 15mm !important;
+    box-shadow: none !important;
+    page-break-after: avoid;
+  }
+
+  /* Force colors to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+}

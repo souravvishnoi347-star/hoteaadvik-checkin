@@ -167,47 +167,27 @@ function QuickBillPage() {
         return;
       }
 
-      // Use window.print for reliable cross-browser PDF generation
-      const printWindow = window.open('', '_blank');
-      if (!printWindow) {
-        alert("Popup blocked! Please allow popups for this site and try again.");
-        setIsDownloading(false);
-        return;
-      }
+      // Create a temporary print container with the invoice clone
+      const printContainer = document.createElement('div');
+      printContainer.id = 'print-container';
+      printContainer.appendChild(element.cloneNode(true));
+      document.body.appendChild(printContainer);
 
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>QuickBill_${finalBookingId}_${guestName.replace(/\s+/g, '_')}</title>
-            <style>
-              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body { font-family: 'Inter', sans-serif; }
-              @media print {
-                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-              }
-            </style>
-          </head>
-          <body>${element.outerHTML}</body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-        setIsDownloading(false);
-        // Reset state
-        setGuestName("");
-        setGuestPhone("");
-        setRoomNumber("");
-        setRoomType("");
-        setRatePerNight("");
-        setGuestGst("");
-        setIsExtraBed(false);
-        setBookingId(0);
-      }, 800);
+      // Print and clean up
+      window.print();
+
+      document.body.removeChild(printContainer);
+      setIsDownloading(false);
+      
+      // Reset state
+      setGuestName("");
+      setGuestPhone("");
+      setRoomNumber("");
+      setRoomType("");
+      setRatePerNight("");
+      setGuestGst("");
+      setIsExtraBed(false);
+      setBookingId(0);
     }, 1000);
   };
 
