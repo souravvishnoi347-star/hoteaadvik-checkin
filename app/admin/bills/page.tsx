@@ -32,7 +32,7 @@ function BillsHistoryPage() {
   const router = useRouter();
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hotelSettings, setHotelSettings] = useState({
-    hotelName: "HOTEL SATYAM SWAGAT",
+    hotelName: "HOTEL AADVIK INN",
   });
 
   const [data, setData] = useState<MergedBookingData[]>([]);

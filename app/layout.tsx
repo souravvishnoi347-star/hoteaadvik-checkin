@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hotel Satyam Swagat | Smart Check-In",
+  title: "Hotel Aadvik INN | Smart Check-In",
   description: "Digital Check-in and Billing System",
 };
 

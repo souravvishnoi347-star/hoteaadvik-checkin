@@ -41,7 +41,7 @@ function AdminDashboard() {
   // Auth & Settings state
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hotelSettings, setHotelSettings] = useState({
-    hotelName: "HOTEL SATYAM SWAGAT",
+    hotelName: "HOTEL AADVIK INN",
     hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
     gstin: "",
     contact: "+91 9528255318",

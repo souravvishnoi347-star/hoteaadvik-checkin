@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient('https://egglwssidddhlbffxofe.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnZ2x3c3NpZGRkaGxiZmZ4b2ZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4NDIxNDMsImV4cCI6MjA5NTQxODE0M30.YNWLE93IUdiQtWC1WTENTQPMN2bDBPiSVlalw-XoQJ0');
+const supabase = createClient('https://ngdauzleenttiwpiokug.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5nZGF1emxlZW50dGl3cGlva3VnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE4NDg4NTYsImV4cCI6MjA5NzQyNDg1Nn0.n_1dObQn8cDq1qGGatXra1j-ykKydgfTBZ21_81A_Qg');
 
 async function test() {
   console.log("Testing Bookings insert...");

@@ -14,7 +14,7 @@ function AdminSettings() {
   const [successMsg, setSuccessMsg] = useState("");
 
   const [settings, setSettings] = useState({
-    hotelName: "HOTEL SATYAM SWAGAT",
+    hotelName: "HOTEL AADVIK INN",
     hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
     gstin: "",
     contact: "+91 9528255318",
@@ -39,7 +39,7 @@ function AdminSettings() {
       const saved = localStorage.getItem("hotelSettings");
       if (saved) {
         try {
-          setSettings(JSON.parse(saved));
+          setSettings(prev => ({ ...prev, ...JSON.parse(saved) }));
         } catch (e) {
           console.error("Failed to parse settings");
         }

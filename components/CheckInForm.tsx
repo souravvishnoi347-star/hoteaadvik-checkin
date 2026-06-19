@@ -326,7 +326,7 @@ export default function CheckInForm() {
           </div>
           <h2 className="text-3xl font-extrabold text-slate-900 mb-4 tracking-tight">Check-in Complete!</h2>
           <p className="text-slate-500 mb-8 text-lg leading-relaxed">
-            Welcome to Hotel Satyam Swagat. Your details have been verified. Please collect your room keys from the reception.
+            Welcome to Hotel Aadvik INN. Your details have been verified. Please collect your room keys from the reception.
           </p>
           <button
             onClick={handleReset}

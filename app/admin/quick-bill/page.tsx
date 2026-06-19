@@ -12,7 +12,7 @@ function QuickBillPage() {
 
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hotelSettings, setHotelSettings] = useState({
-    hotelName: "HOTEL SATYAM SWAGAT",
+    hotelName: "HOTEL AADVIK INN",
     hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
     gstin: "",
     contact: "+91 9528255318",
@@ -42,7 +42,7 @@ function QuickBillPage() {
       const savedSettings = localStorage.getItem("hotelSettings");
       if (savedSettings) {
         try {
-          setHotelSettings(JSON.parse(savedSettings));
+          setHotelSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
         } catch (e) {}
       }
     }
@@ -322,153 +322,124 @@ function QuickBillPage() {
           <div 
             ref={invoiceRef} 
             id="invoice-template" 
-            className="relative shrink-0 flex flex-col shadow-2xl" 
-            style={{ width: '210mm', minHeight: '297mm', padding: '15mm 20mm', backgroundColor: '#ffffff' }}
+            className="relative shrink-0 flex flex-col shadow-2xl bg-white" 
+            style={{ width: '210mm', minHeight: '297mm', padding: '15mm 20mm', color: '#0f172a', fontFamily: 'system-ui, -apple-system, sans-serif' }}
           >
-            <div className="text-center mb-8 pt-4 relative">
-              <div className="flex justify-center mb-4">
-                <img src="/logo.png" alt="Hotel Logo" className="h-24 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-              </div>
-              <h1 className="text-4xl font-extrabold tracking-wider uppercase" style={{ color: '#111827' }}>{hotelSettings.hotelName}</h1>
-              <p className="text-sm font-semibold mt-1 uppercase tracking-widest" style={{ color: '#6b7280' }}>Managed by Triloki Hospitality</p>
-              <p className="text-sm font-medium mt-2 tracking-wide uppercase" style={{ color: '#4b5563' }}>{hotelSettings.hotelAddress}</p>
-              
-              {hotelSettings.gstin && (
-                <p className="text-sm font-bold mt-1 uppercase tracking-widest" style={{ color: '#1f2937' }}>GSTIN: {hotelSettings.gstin}</p>
-              )}
-
-              <div className="mt-6">
-                <h2 className="text-xl font-bold tracking-widest border-b-[3px] inline-block pb-1 px-4" style={{ color: '#1f2937', borderColor: '#78350f' }}>
-                  BOOKING CONFIRMATION
-                </h2>
-              </div>
-
-              <div className="text-right mt-4 mb-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: '#6b7280' }}>Invoice No.</p>
-                <p className="text-sm font-bold" style={{ color: '#111827' }}>INV-{new Date().toISOString().slice(0,10).replace(/-/g,'')}-{bookingId ? bookingId.toString().padStart(4, '0') : 'XXXX'}</p>
-              </div>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="text-xs font-bold mb-2 uppercase tracking-widest" style={{ color: '#78350f' }}>Guest Details</h3>
-              <table className="w-full text-left border-collapse border text-sm" style={{ borderColor: '#d1d5db' }}>
-                <thead style={{ backgroundColor: '#78350f', color: '#ffffff' }}>
-                  <tr>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Guest Name</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Contact Number</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="py-3 px-4 border font-semibold" style={{ borderColor: '#d1d5db', color: '#111827' }}>{guestName || '—'}</td>
-                    <td className="py-3 px-4 border font-semibold" style={{ borderColor: '#d1d5db', color: '#111827' }}>{guestPhone || '—'}</td>
-                  </tr>
-                  {guestGst && (
-                    <tr>
-                      <td className="py-2 px-4 border font-bold uppercase text-xs" style={{ borderColor: '#d1d5db', color: '#111827', backgroundColor: '#fffbeb' }}>Guest GSTIN</td>
-                      <td className="py-2 px-4 border font-bold uppercase" style={{ borderColor: '#d1d5db', color: '#111827' }}>{guestGst}</td>
-                    </tr>
+            {/* Header: Two Column Layout */}
+            <div className="flex justify-between items-start border-b-2 pb-6 mb-8" style={{ borderColor: '#e2e8f0' }}>
+              <div className="flex items-center gap-4">
+                <img src="/logo.png" alt="Hotel Logo" className="h-20 object-contain" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                <div>
+                  <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: '#0f172a' }}>{hotelSettings.hotelName}</h1>
+                  <p className="text-sm font-medium mt-1 text-slate-500">{hotelSettings.hotelAddress}</p>
+                  {hotelSettings.gstin && (
+                    <p className="text-sm font-semibold mt-1" style={{ color: '#334155' }}>GSTIN: {hotelSettings.gstin}</p>
                   )}
-                </tbody>
-              </table>
+                  <p className="text-xs font-medium mt-1 text-slate-400">Managed by Triloki Hospitality</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <h2 className="text-4xl font-black uppercase tracking-widest mb-2" style={{ color: '#1e3a8a' }}>INVOICE</h2>
+                <p className="text-sm font-bold" style={{ color: '#475569' }}>INV-{new Date().toISOString().slice(0,10).replace(/-/g,'')}-{bookingId ? bookingId.toString().padStart(4, '0') : 'XXXX'}</p>
+                <p className="text-sm font-medium mt-1" style={{ color: '#64748b' }}>Date: {new Date().toLocaleDateString()}</p>
+              </div>
             </div>
 
-            <div className="mb-6">
-              <h3 className="text-xs font-bold mb-2 uppercase tracking-widest" style={{ color: '#78350f' }}>Stay Details</h3>
-              <table className="w-full text-left border-collapse border text-sm" style={{ borderColor: '#d1d5db' }}>
-                <thead style={{ backgroundColor: '#78350f', color: '#ffffff' }}>
-                  <tr>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Check-in</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Check-out</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Room Type</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Duration</th>
+            {/* Info Section: Two Columns */}
+            <div className="flex justify-between gap-8 mb-8">
+              <div className="w-1/2">
+                <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#94a3b8' }}>Bill To</h3>
+                <p className="font-bold text-lg" style={{ color: '#0f172a' }}>{guestName || 'Guest Name'}</p>
+                <p className="font-medium text-sm mt-1" style={{ color: '#475569' }}>Phone: {guestPhone || '—'}</p>
+                {guestGst && <p className="font-medium text-sm mt-1" style={{ color: '#475569' }}>GSTIN: {guestGst}</p>}
+              </div>
+              <div className="w-1/2 bg-slate-50 p-4 rounded-xl border" style={{ borderColor: '#f1f5f9' }}>
+                <h3 className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: '#94a3b8' }}>Stay Details</h3>
+                <div className="grid grid-cols-2 gap-y-2 text-sm">
+                  <p className="font-medium text-slate-500">Check-in:</p>
+                  <p className="font-semibold text-slate-800 text-right">{calc.checkIn}</p>
+                  <p className="font-medium text-slate-500">Check-out:</p>
+                  <p className="font-semibold text-slate-800 text-right">{calc.checkOut}</p>
+                  <p className="font-medium text-slate-500">Duration:</p>
+                  <p className="font-semibold text-slate-800 text-right">{calc.duration} Night(s)</p>
+                  <p className="font-medium text-slate-500">Room Type:</p>
+                  <p className="font-semibold text-slate-800 text-right">{roomType || '—'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Charges Table */}
+            <div className="mb-8">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2" style={{ borderColor: '#cbd5e1' }}>
+                    <th className="py-3 px-2 font-bold uppercase tracking-wider text-xs" style={{ color: '#475569' }}>Description</th>
+                    <th className="py-3 px-2 font-bold uppercase tracking-wider text-xs text-center" style={{ color: '#475569' }}>Qty</th>
+                    <th className="py-3 px-2 font-bold uppercase tracking-wider text-xs text-right" style={{ color: '#475569' }}>Rate</th>
+                    <th className="py-3 px-2 font-bold uppercase tracking-wider text-xs text-right" style={{ color: '#475569' }}>Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td className="py-3 px-4 border font-medium" style={{ borderColor: '#d1d5db', color: '#111827' }}>{calc.checkIn}</td>
-                    <td className="py-3 px-4 border font-medium" style={{ borderColor: '#d1d5db', color: '#111827' }}>{calc.checkOut}</td>
-                    <td className="py-3 px-4 border font-medium" style={{ borderColor: '#d1d5db', color: '#111827' }}>{roomType || '—'}</td>
-                    <td className="py-3 px-4 border font-medium" style={{ borderColor: '#d1d5db', color: '#111827' }}>{calc.duration} Night(s)</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="mb-6">
-              <h3 className="text-xs font-bold mb-2 uppercase tracking-widest" style={{ color: '#78350f' }}>Room & Pricing Details</h3>
-              <table className="w-full text-left border-collapse border text-sm" style={{ borderColor: '#d1d5db' }}>
-                <thead style={{ backgroundColor: '#78350f', color: '#ffffff' }}>
-                  <tr>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Description</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Qty</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Rate/Night</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Room Charges (Room {roomNumber || '—'})</td>
-                    <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>{calc.duration}</td>
-                    <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {calc.rate.toFixed(2)}</td>
-                    <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {(calc.rate * calc.duration).toFixed(2)}</td>
+                  <tr className="border-b" style={{ borderColor: '#f1f5f9' }}>
+                    <td className="py-4 px-2 font-semibold" style={{ color: '#1e293b' }}>Room Charges (Room {roomNumber || '—'})</td>
+                    <td className="py-4 px-2 text-center font-medium text-slate-600">{calc.duration}</td>
+                    <td className="py-4 px-2 text-right font-medium text-slate-600">Rs. {calc.rate.toFixed(2)}</td>
+                    <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {(calc.rate * calc.duration).toFixed(2)}</td>
                   </tr>
                   {isExtraBed && (
-                    <tr>
-                      <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Extra Bed Charge</td>
-                      <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>{calc.duration}</td>
-                      <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {(hotelSettings.extraBedCharge || 350).toFixed(2)}</td>
-                      <td className="py-3 px-4 border" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {calc.extraBedTotal.toFixed(2)}</td>
+                    <tr className="border-b" style={{ borderColor: '#f1f5f9' }}>
+                      <td className="py-4 px-2 font-semibold" style={{ color: '#1e293b' }}>Extra Bed Charge</td>
+                      <td className="py-4 px-2 text-center font-medium text-slate-600">{calc.duration}</td>
+                      <td className="py-4 px-2 text-right font-medium text-slate-600">Rs. {(hotelSettings.extraBedCharge || 350).toFixed(2)}</td>
+                      <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {calc.extraBedTotal.toFixed(2)}</td>
                     </tr>
                   )}
-                  <tr style={{ backgroundColor: '#f9fafb' }}>
-                    <td colSpan={3} className="py-2 px-4 border font-bold text-right uppercase text-xs" style={{ borderColor: '#d1d5db', color: '#111827' }}>Subtotal</td>
-                    <td className="py-2 px-4 border font-bold" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {calc.subtotal.toFixed(2)}</td>
-                  </tr>
-                  {hotelSettings.gstPercentage > 0 && (
-                    <tr style={{ backgroundColor: '#f9fafb' }}>
-                      <td colSpan={3} className="py-2 px-4 border font-bold text-right uppercase text-xs" style={{ borderColor: '#d1d5db', color: '#111827' }}>GST ({hotelSettings.gstPercentage}%)</td>
-                      <td className="py-2 px-4 border font-bold" style={{ borderColor: '#d1d5db', color: '#111827' }}>Rs. {calc.gstAmount.toFixed(2)}</td>
-                    </tr>
-                  )}
-                  <tr style={{ backgroundColor: '#fffbeb' }}>
-                    <td colSpan={3} className="py-3 px-4 border font-bold text-right uppercase text-xs" style={{ borderColor: '#fde68a', color: '#78350f' }}>Grand Total</td>
-                    <td className="py-3 px-4 border font-bold" style={{ borderColor: '#fde68a', color: '#78350f' }}>Rs. {calc.grandTotal.toFixed(2)}</td>
-                  </tr>
                 </tbody>
               </table>
             </div>
 
-            <div className="mb-6">
-              <h3 className="text-xs font-bold mb-2 uppercase tracking-widest" style={{ color: '#78350f' }}>Payment Information</h3>
-              <table className="w-full text-left border-collapse border text-sm" style={{ borderColor: '#d1d5db' }}>
-                <thead style={{ backgroundColor: '#78350f', color: '#ffffff' }}>
-                  <tr>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Payment Mode</th>
-                    <th className="py-2.5 px-4 border font-bold uppercase tracking-wide text-xs" style={{ borderColor: '#78350f' }}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td className="py-3 px-4 border font-bold uppercase" style={{ borderColor: '#d1d5db', color: '#111827' }}>{paymentMode}</td>
-                    <td className="py-3 px-4 border font-bold" style={{ borderColor: '#d1d5db', color: '#15803d' }}>PAID: Rs. {calc.grandTotal.toFixed(2)}</td>
-                  </tr>
-                </tbody>
-              </table>
+            {/* Totals Section */}
+            <div className="flex justify-end mb-8">
+              <div className="w-1/2 lg:w-2/5">
+                <div className="flex justify-between py-2 text-sm border-b" style={{ borderColor: '#f1f5f9' }}>
+                  <span className="font-semibold text-slate-600">Subtotal</span>
+                  <span className="font-bold text-slate-800">Rs. {calc.subtotal.toFixed(2)}</span>
+                </div>
+                {hotelSettings.gstPercentage > 0 && (
+                  <div className="flex justify-between py-2 text-sm border-b" style={{ borderColor: '#f1f5f9' }}>
+                    <span className="font-semibold text-slate-600">GST ({hotelSettings.gstPercentage}%)</span>
+                    <span className="font-bold text-slate-800">Rs. {calc.gstAmount.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between py-4 mt-2 bg-slate-50 px-4 rounded-xl items-center">
+                  <span className="font-bold text-lg" style={{ color: '#1e3a8a' }}>Total Due</span>
+                  <span className="font-black text-xl" style={{ color: '#1e3a8a' }}>Rs. {calc.grandTotal.toFixed(2)}</span>
+                </div>
+                <div className="text-right mt-2">
+                  <span className="inline-block bg-green-100 text-green-800 text-xs px-2.5 py-1 rounded-full font-bold tracking-wide uppercase">
+                    PAID VIA {paymentMode}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="mt-auto pt-8">
-              <hr className="border-t-2 mb-4" style={{ borderColor: '#e5e7eb' }} />
-              <h3 className="text-sm font-bold mb-2" style={{ color: '#1f2937' }}>Important Information:</h3>
-              <ul className="text-xs space-y-1.5 list-disc pl-5 mb-6 font-medium" style={{ color: '#4b5563' }}>
-                <li>Check-in time is 12:00 Noon.</li>
-                <li>Valid Government ID is required for all guests at check-in.</li>
-                <li>Strictly no smoking inside the rooms.</li>
-              </ul>
+            {/* Footer */}
+            <div className="mt-auto pt-8 border-t" style={{ borderColor: '#e2e8f0' }}>
               <div className="flex justify-between items-end">
-                <p className="text-sm font-bold" style={{ color: '#78350f' }}>Reception Contact: {hotelSettings.contact}</p>
-                <div className="text-right">
-                  <p className="text-xs border-t pt-1 px-4 inline-block" style={{ color: '#9ca3af', borderColor: '#d1d5db' }}>Authorized Signatory</p>
+                <div className="w-2/3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: '#94a3b8' }}>Terms & Conditions</h3>
+                  <ul className="text-[10px] space-y-1 font-medium text-slate-500 list-inside list-disc">
+                    <li>Check-in time is 12:00 Noon. Check-out time is 11:00 AM.</li>
+                    <li>Valid Government ID is required for all guests.</li>
+                    <li>Any damages to hotel property will be charged to the guest.</li>
+                    <li>Strictly no smoking inside the rooms.</li>
+                  </ul>
+                </div>
+                <div className="w-1/3 text-right">
+                  <div className="h-16"></div>
+                  <div className="border-t pt-2 inline-block" style={{ borderColor: '#cbd5e1' }}>
+                    <p className="text-xs font-bold text-slate-700 uppercase tracking-widest">Authorized Signatory</p>
+                  </div>
                 </div>
               </div>
             </div>
