@@ -13,9 +13,9 @@ function QuickBillPage() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hotelSettings, setHotelSettings] = useState({
     hotelName: "HOTEL AADVIK INN",
-    hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
+    hotelAddress: "OPP VERTERNITY HOSPITAL HARIDWAR 249401",
     gstin: "",
-    contact: "+91 9528255318",
+    contact: "+91 9719350125",
     gstPercentage: 0,
     extraBedCharge: 350
   });
@@ -39,7 +39,7 @@ function QuickBillPage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedSettings = localStorage.getItem("aadvikSettings");
+      const savedSettings = localStorage.getItem("hotelAadvikSettings");
       if (savedSettings) {
         try {
           setHotelSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));

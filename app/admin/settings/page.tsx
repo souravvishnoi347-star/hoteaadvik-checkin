@@ -15,9 +15,9 @@ function AdminSettings() {
 
   const [settings, setSettings] = useState({
     hotelName: "HOTEL AADVIK INN",
-    hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
+    hotelAddress: "OPP VERTERNITY HOSPITAL HARIDWAR 249401",
     gstin: "",
-    contact: "+91 9528255318",
+    contact: "+91 9719350125",
     gstPercentage: 0,
     extraBedCharge: 350
   });
@@ -36,7 +36,7 @@ function AdminSettings() {
 
     // Load settings from local storage
     if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem("aadvikSettings");
+      const saved = localStorage.getItem("hotelAadvikSettings");
       if (saved) {
         try {
           setSettings(prev => ({ ...prev, ...JSON.parse(saved) }));
@@ -57,7 +57,7 @@ function AdminSettings() {
 
   const handleSave = () => {
     setIsSaving(true);
-    localStorage.setItem("aadvikSettings", JSON.stringify(settings));
+    localStorage.setItem("hotelAadvikSettings", JSON.stringify(settings));
     setTimeout(() => {
       setIsSaving(false);
       setSuccessMsg("Settings saved successfully!");
