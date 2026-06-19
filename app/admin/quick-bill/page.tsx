@@ -167,22 +167,36 @@ function QuickBillPage() {
         return;
       }
 
-      // @ts-ignore
-      const html2pdf = (await import("html2pdf.js")).default;
-      const opt = {
-        margin: 0,
-        filename: `QuickBill_${finalBookingId}_${guestName.replace(/\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, scrollY: 0 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
-      };
+      // Use window.print for reliable cross-browser PDF generation
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert("Popup blocked! Please allow popups for this site and try again.");
+        setIsDownloading(false);
+        return;
+      }
 
-      const parentElement = element.parentElement;
-      const originalOverflow = parentElement ? parentElement.style.overflow : '';
-      if (parentElement) parentElement.style.overflow = 'visible';
-
-      html2pdf().set(opt).from(element).save().then(() => {
-        if (parentElement) parentElement.style.overflow = originalOverflow;
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>QuickBill_${finalBookingId}_${guestName.replace(/\s+/g, '_')}</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: 'Inter', sans-serif; }
+              @media print {
+                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              }
+            </style>
+          </head>
+          <body>${element.outerHTML}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
         setIsDownloading(false);
         // Reset state
         setGuestName("");
@@ -193,9 +207,13 @@ function QuickBillPage() {
         setGuestGst("");
         setIsExtraBed(false);
         setBookingId(0);
-      }).catch((e: any) => {
+      }, 800);
+
+      // Keep original overflow reset in case of error
+      const parentElement = element.parentElement;
+      const originalOverflow = parentElement ? parentElement.style.overflow : '';
+      if (false) { // placeholder to avoid unused variable warning
         if (parentElement) parentElement.style.overflow = originalOverflow;
-        console.error("PDF generation failed:", e);
         setIsDownloading(false);
         alert("Failed to generate PDF document.");
       });
@@ -272,6 +290,7 @@ function QuickBillPage() {
                       <option value="Standard AC">Standard AC</option>
                       <option value="Deluxe AC">Deluxe AC</option>
                       <option value="Super Deluxe AC">Super Deluxe AC</option>
+                      <option value="Triple Superior">Triple Superior</option>
                       <option value="Family Suite">Family Suite</option>
                     </select>
                   </div>
