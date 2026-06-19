@@ -42,10 +42,10 @@ function BillsHistoryPage() {
 
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedSettings = localStorage.getItem("hotelSettings");
+      const savedSettings = localStorage.getItem("hotelAadvikSettings");
       if (savedSettings) {
         try {
-          setHotelSettings(JSON.parse(savedSettings));
+          setHotelSettings(prev => ({ ...prev, ...JSON.parse(savedSettings) }));
         } catch (e) {}
       }
     }

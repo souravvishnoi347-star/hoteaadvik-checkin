@@ -208,15 +208,6 @@ function QuickBillPage() {
         setIsExtraBed(false);
         setBookingId(0);
       }, 800);
-
-      // Keep original overflow reset in case of error
-      const parentElement = element.parentElement;
-      const originalOverflow = parentElement ? parentElement.style.overflow : '';
-      if (false) { // placeholder to avoid unused variable warning
-        if (parentElement) parentElement.style.overflow = originalOverflow;
-        setIsDownloading(false);
-        alert("Failed to generate PDF document.");
-      });
     }, 1000);
   };
 

@@ -42,9 +42,9 @@ function AdminDashboard() {
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [hotelSettings, setHotelSettings] = useState({
     hotelName: "HOTEL AADVIK INN",
-    hotelAddress: "ARYA NAGAR HARIDWAR UTTARAKHAND",
+    hotelAddress: "OPP VERTERNITY HOSPITAL HARIDWAR 249401",
     gstin: "",
-    contact: "+91 9528255318",
+    contact: "+91 9719350125",
     gstPercentage: 0,
     extraBedCharge: 350
   });
