@@ -335,7 +335,6 @@ function QuickBillPage() {
                   {hotelSettings.gstin && (
                     <p className="text-sm font-semibold mt-1" style={{ color: '#334155' }}>GSTIN: {hotelSettings.gstin}</p>
                   )}
-                  <p className="text-xs font-medium mt-1 text-slate-400">Managed by Triloki Hospitality</p>
                 </div>
               </div>
               <div className="text-right">
