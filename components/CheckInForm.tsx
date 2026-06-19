@@ -233,21 +233,15 @@ export default function CheckInForm() {
         }
       }
 
-      // 2. Insert into Bookings
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('Bookings')
-        .insert({
-          check_in_date: primaryGuest.checkInDate,
-          check_out_date: primaryGuest.checkOutDate,
-          agreed_price: primaryGuest.agreedPrice ? parseFloat(primaryGuest.agreedPrice) : null,
-          status: 'checked_in'
-        })
-        .select()
-        .single();
+      // 2. Insert into Bookings via RPC (Bypasses SELECT RLS for anonymous users)
+      const { data: bookingId, error: bookingError } = await supabase.rpc('create_booking_return_id', {
+        p_check_in_date: primaryGuest.checkInDate,
+        p_check_out_date: primaryGuest.checkOutDate,
+        p_agreed_price: primaryGuest.agreedPrice ? parseFloat(primaryGuest.agreedPrice) : null,
+        p_status: 'checked_in'
+      });
         
       if (bookingError) throw bookingError;
-      
-      const bookingId = bookingData.id;
 
       // 3. Prepare and Insert Guests
       const guestsToInsert: any[] = [];
