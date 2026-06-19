@@ -280,63 +280,48 @@ function AdminDashboard() {
       const element = invoiceRef.current;
       if (!element) throw new Error("Invoice template not found");
 
-      // @ts-ignore
-      const html2pdf = (await import("html2pdf.js")).default;
-      
-      const opt = {
-        margin: 0,
-        filename: `Bill_${selectedBooking.id}_${selectedBooking.primary_guest_name.replace(/\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg' as const, quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, letterRendering: true, scrollY: 0 },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
-      };
+      // Use window.print for reliable cross-browser PDF generation
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert("Popup blocked! Please allow popups for this site and try again.");
+        setIsDownloading(false);
+        return;
+      }
 
-      // Temporarily fix scroll issue for html2canvas
-      const parentElement = element.parentElement;
-      const originalOverflow = parentElement ? parentElement.style.overflow : '';
-      if (parentElement) parentElement.style.overflow = 'visible';
-
-      html2pdf().set(opt).from(element).save().then(async () => {
-        if (parentElement) parentElement.style.overflow = originalOverflow;
-        try {
-          const currentCalc = getCalculations();
-          const { error: updateError } = await supabase
-            .from("Bookings")
-            .update({ status: 'Checked-Out' })
-            .eq('id', selectedBooking.id);
-          
-          if (updateError) {
-            console.error("Failed to update status:", updateError);
-            if (updateError.message?.includes("total_amount") || updateError.code === "PGRST204" || updateError.code === "42703") {
-              const { error: fallbackError } = await supabase
-                .from("Bookings")
-                .update({ status: 'Checked-Out' })
-                .eq('id', selectedBooking.id);
-                
-              if (!fallbackError) {
-                alert("WARNING: Guest checked out, but Revenue was NOT saved. You must add a 'total_amount' (numeric) column to your Supabase Bookings table for the Revenue tab to work!");
-                fetchData();
-              } else {
-                alert("Failed to update booking in database: " + fallbackError.message);
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Bill_${selectedBooking.id}_${selectedBooking.primary_guest_name.replace(/\s+/g, '_')}</title>
+            <style>
+              @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+              * { margin: 0; padding: 0; box-sizing: border-box; }
+              body { font-family: 'Inter', sans-serif; }
+              @media print {
+                body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
               }
-            } else {
-              alert("Failed to update booking in database: " + updateError.message);
-            }
-          } else {
-            fetchData();
-          }
-        } catch (err) {
-          console.error("Unexpected error in PDF success handler:", err);
-        }
-        
-        setIsModalOpen(false);
-        setIsDownloading(false);
-      }).catch((err: any) => {
-        if (parentElement) parentElement.style.overflow = originalOverflow;
-        console.error("PDF Generation failed:", err);
-        alert("Failed to generate PDF: " + (err?.message || JSON.stringify(err)));
-        setIsDownloading(false);
-      });
+            </style>
+          </head>
+          <body>${element.outerHTML}</body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 800);
+
+      // Update booking status in Supabase
+      try {
+        await supabase.from("Bookings").update({ status: 'Checked-Out' }).eq('id', selectedBooking.id);
+        fetchData();
+      } catch (err) {
+        console.error("Failed to update status:", err);
+      }
+
+      setIsModalOpen(false);
+      setIsDownloading(false);
 
     } catch (err: any) {
       console.error("PDF Initialization failed:", err);
