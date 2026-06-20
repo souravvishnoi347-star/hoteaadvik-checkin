@@ -53,7 +53,8 @@ export default function CheckInForm() {
     agreedPrice: '',
   });
 
-  const [additionalGuests, setAdditionalGuests] = useState<AdditionalGuest[]>([]);
+  const [maleGuests, setMaleGuests] = useState<number>(0);
+  const [femaleGuests, setFemaleGuests] = useState<number>(0);
   const [idFiles, setIdFiles] = useState<{ [key: number]: File | null }>({});
   const [idStatus, setIdStatus] = useState<{ [key: number]: 'idle' | 'scanning' | 'valid' | 'invalid' }>({});
   
@@ -68,54 +69,7 @@ export default function CheckInForm() {
     setPrimaryGuest((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleAddGuest = () => {
-    setAdditionalGuests((prev) => [...prev, { name: '', age: '' }]);
-  };
 
-  const handleRemoveGuest = (index: number) => {
-    setAdditionalGuests((prev) => prev.filter((_, i) => i !== index));
-    setIdFiles((prev) => {
-      const newFiles = { ...prev };
-      for (let i = index + 1; i <= additionalGuests.length; i++) {
-        newFiles[i] = newFiles[i + 1];
-      }
-      delete newFiles[additionalGuests.length];
-      return newFiles;
-    });
-    setIdStatus((prev) => {
-      const newStatus = { ...prev };
-      for (let i = index + 1; i <= additionalGuests.length; i++) {
-        newStatus[i] = newStatus[i + 1];
-      }
-      delete newStatus[additionalGuests.length];
-      return newStatus;
-    });
-    setIdBackFiles((prev) => {
-      const newFiles = { ...prev };
-      for (let i = index + 1; i <= additionalGuests.length; i++) {
-        newFiles[i] = newFiles[i + 1];
-      }
-      delete newFiles[additionalGuests.length];
-      return newFiles;
-    });
-    setIdBackStatus((prev) => {
-      const newStatus = { ...prev };
-      for (let i = index + 1; i <= additionalGuests.length; i++) {
-        newStatus[i] = newStatus[i + 1];
-      }
-      delete newStatus[additionalGuests.length];
-      return newStatus;
-    });
-  };
-
-  const handleAdditionalGuestChange = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setAdditionalGuests((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [name]: value };
-      return updated;
-    });
-  };
 
   const handleFileChange = async (guestIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -208,7 +162,7 @@ export default function CheckInForm() {
       const uploadedUrls: { [key: number]: string } = {};
       const uploadedBackUrls: { [key: number]: string } = {};
 
-      const totalGuests = 1 + additionalGuests.length;
+      const totalGuests = 1;
       
       // 1. Upload All Files
       for (let i = 0; i < totalGuests; i++) {
@@ -257,17 +211,26 @@ export default function CheckInForm() {
       });
 
       // Additional Guests
-      additionalGuests.forEach((guest, index) => {
-        const i = index + 1;
+      for (let i = 0; i < maleGuests; i++) {
         guestsToInsert.push({
           booking_id: bookingId,
-          name: guest.name,
-          age: parseInt(guest.age),
+          name: 'Additional Male Guest',
+          age: 0,
           phone: null,
-          id_image_url: uploadedUrls[i] || null,
-          id_image_back_url: uploadedBackUrls[i] || null
+          id_image_url: null,
+          id_image_back_url: null
         });
-      });
+      }
+      for (let i = 0; i < femaleGuests; i++) {
+        guestsToInsert.push({
+          booking_id: bookingId,
+          name: 'Additional Female Guest',
+          age: 0,
+          phone: null,
+          id_image_url: null,
+          id_image_back_url: null
+        });
+      }
 
       const { error: guestsError } = await supabase
         .from('Guests')
@@ -299,15 +262,15 @@ export default function CheckInForm() {
   const handleReset = () => {
     setIsSubmitted(false);
     setPrimaryGuest({ name: '', age: '', phone: '', checkInDate: '', checkOutDate: '', agreedPrice: '' });
-    setAdditionalGuests([]);
+    setMaleGuests(0);
+    setFemaleGuests(0);
     setIdFiles({});
     setIdStatus({});
     setIdBackFiles({});
     setIdBackStatus({});
   };
 
-  const totalGuests = 1 + additionalGuests.length;
-  const allIdsValid = Array.from({ length: totalGuests }).every((_, i) => idStatus[i] === 'valid');
+  const allIdsValid = idStatus[0] === 'valid';
 
   if (isSubmitted) {
     return (
@@ -440,196 +403,39 @@ export default function CheckInForm() {
             </div>
           </div>
 
-          {/* Additional Guests */}
-          {additionalGuests.map((guest, index) => {
-            const guestIndex = index + 1;
-            return (
-            <div key={index} className="bg-white/70 backdrop-blur-xl p-5 sm:p-6 rounded-3xl shadow-lg border border-white/60 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-3">
-                  <div className="bg-slate-100 text-slate-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">
-                    {index + 2}
-                  </div>
-                  <h2 className="text-lg sm:text-xl font-semibold text-slate-800">Additional Guest</h2>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveGuest(index)}
-                  className="text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-full transition-colors text-sm font-medium"
-                >
-                  Remove
-                </button>
+          {/* Guest Counts */}
+          <div className="bg-white/70 backdrop-blur-xl p-5 sm:p-6 rounded-3xl shadow-lg border border-white/60 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1">
+            <h2 className="text-lg sm:text-xl font-semibold text-slate-800 mb-4">Additional Guests (Optional)</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Male Guests</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={maleGuests === 0 ? '' : maleGuests}
+                  onChange={(e) => setMaleGuests(parseInt(e.target.value) || 0)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white"
+                />
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">Full Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={guest.name}
-                    onChange={(e) => handleAdditionalGuestChange(index, e)}
-                    required
-                    placeholder="Jane Doe"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white"
-                  />
-                </div>
-                <div className="sm:col-span-1">
-                  <label className="block text-sm font-medium text-slate-600 mb-1">Age</label>
-                  <input
-                    type="number"
-                    name="age"
-                    value={guest.age}
-                    onChange={(e) => handleAdditionalGuestChange(index, e)}
-                    required
-                    min="0"
-                    placeholder="25"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Individual ID Upload for Additional Guest */}
-              <div className="flex flex-col p-4 bg-white/50 rounded-2xl border border-white/60 gap-3 transition-all shadow-sm mt-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="w-full sm:w-1/3">
-                    <p className="font-medium text-slate-700 line-clamp-1">{guest.name || "Guest"}'s ID</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Formats: JPG, PNG</p>
-                  </div>
-                  
-                  <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-2/3 shrink-0">
-                    {idStatus[guestIndex] === 'valid' || idStatus[guestIndex] === 'scanning' ? (
-                      <div className="relative w-full">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleFileChange(guestIndex, e)}
-                          disabled={idStatus[guestIndex] === 'scanning'}
-                          className={`absolute inset-0 w-full h-full opacity-0 z-10 ${idStatus[guestIndex] !== 'scanning' ? 'cursor-pointer' : ''}`}
-                          title="Change Front Side"
-                        />
-                        <div className={`w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors border flex items-center justify-center gap-2 ${idStatus[guestIndex] === 'scanning' ? 'bg-amber-50 text-amber-700 border-amber-200 shadow-sm animate-pulse' : 'bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm'}`}>
-                          {idStatus[guestIndex] === 'scanning' ? 'Verifying...' : '✓ Front Verified'}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2 w-full">
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={(e) => handleFileChange(guestIndex, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Take Photo"
-                          />
-                          <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 ${idStatus[guestIndex] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}>
-                            <span className="text-base">📷</span> Camera
-                          </div>
-                        </div>
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleFileChange(guestIndex, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Upload from Gallery"
-                          />
-                          <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 ${idStatus[guestIndex] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}>
-                            <span className="text-base">📁</span> Gallery
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {idBackStatus[guestIndex] === 'uploaded' ? (
-                      <div className="relative w-full">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={(e) => handleBackFileChange(guestIndex, e)}
-                          className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                          title="Change Back Side"
-                        />
-                        <div className="w-full text-center px-4 py-2.5 rounded-xl text-sm font-medium transition-colors border flex items-center justify-center gap-2 bg-emerald-50 text-emerald-700 border-emerald-200 shadow-sm">
-                          ✓ Back Uploaded
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2 w-full">
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={(e) => handleBackFileChange(guestIndex, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Take Photo"
-                          />
-                          <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm">
-                            <span className="text-base">📷</span> Camera
-                          </div>
-                        </div>
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleBackFileChange(guestIndex, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Upload from Gallery"
-                          />
-                          <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm">
-                            <span className="text-base">📁</span> Gallery
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {idStatus[guestIndex] === 'invalid' && (
-                  <div className="flex items-center justify-between mt-2 animate-in fade-in slide-in-from-top-1 bg-red-50 p-3 rounded-xl border border-red-100">
-                    <p className="text-red-600 text-sm font-medium">
-                      Invalid ID detected: Please upload a clear photo of the Front Side of a valid Government ID
-                    </p>
-                    <button 
-                      type="button"
-                      onClick={() => setIdStatus(prev => ({ ...prev, [guestIndex]: 'valid' }))}
-                      className="ml-4 px-4 py-2 text-xs font-bold text-red-700 hover:text-red-900 bg-red-100 hover:bg-red-200 rounded-lg transition-colors shrink-0"
-                    >
-                      Skip Verification (Force Accept)
-                    </button>
-                  </div>
-                )}
-                {idStatus[guestIndex] === 'scanning' && (
-                  <div className="flex items-center justify-end mt-2 animate-in fade-in slide-in-from-top-1">
-                    <button 
-                      type="button"
-                      onClick={() => setIdStatus(prev => ({ ...prev, [guestIndex]: 'valid' }))}
-                      className="px-4 py-2 text-xs font-bold text-amber-700 hover:text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-lg transition-colors shrink-0 shadow-sm"
-                    >
-                      Taking too long? Skip Verification
-                    </button>
-                  </div>
-                )}
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Female Guests</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={femaleGuests === 0 ? '' : femaleGuests}
+                  onChange={(e) => setFemaleGuests(parseInt(e.target.value) || 0)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white"
+                />
               </div>
             </div>
-          )})}
-
-          {/* Add Guest Button */}
-          <button
-            type="button"
-            onClick={handleAddGuest}
-            className="w-full py-4 border-2 border-dashed border-indigo-200 text-indigo-600 font-semibold rounded-3xl hover:bg-indigo-50 hover:border-indigo-300 transition-all active:scale-[0.98]"
-          >
-            + Add Additional Guest
-          </button>
+          </div>
 
           {/* ID Uploads Section */}
           <div className="bg-white/70 backdrop-blur-xl p-5 sm:p-6 rounded-3xl shadow-lg border border-white/60 transition-all duration-300 hover:shadow-2xl hover:-translate-y-1">
             <h2 className="text-lg sm:text-xl font-semibold text-slate-800 mb-2">Identity Verification</h2>
             <div className="mb-5 space-y-3">
               <p className="text-sm text-slate-500">
-                Please upload a valid government-issued ID for each guest. OCR verification is required.
+                Please upload a valid government-issued ID for the primary guest. OCR verification is required.
               </p>
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <p className="text-sm font-semibold text-amber-800">
