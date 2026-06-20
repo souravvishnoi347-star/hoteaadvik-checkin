@@ -29,6 +29,8 @@ function QuickBillPage() {
   const [roomType, setRoomType] = useState("");
   const [ratePerNight, setRatePerNight] = useState("");
   const [isExtraBed, setIsExtraBed] = useState(false);
+  const [extraHours, setExtraHours] = useState("");
+  const [extraHoursAmount, setExtraHoursAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [guestGst, setGuestGst] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
@@ -70,7 +72,8 @@ function QuickBillPage() {
     const rate = parseFloat(ratePerNight) || 0;
     
     const extraBedTotal = isExtraBed ? (hotelSettings.extraBedCharge * nights) : 0;
-    const subtotal = (rate * nights) + extraBedTotal;
+    const extraHoursTotal = parseFloat(extraHoursAmount) || 0;
+    const subtotal = (rate * nights) + extraBedTotal + extraHoursTotal;
     
     const gstPercent = hotelSettings.gstPercentage || 0;
     const gstAmount = subtotal * (gstPercent / 100);
@@ -80,6 +83,8 @@ function QuickBillPage() {
       duration: nights,
       rate,
       extraBedTotal,
+      extraHours: extraHours || "0",
+      extraHoursTotal,
       subtotal,
       gstAmount,
       grandTotal,
@@ -187,6 +192,8 @@ function QuickBillPage() {
       setRatePerNight("");
       setGuestGst("");
       setIsExtraBed(false);
+      setExtraHours("");
+      setExtraHoursAmount("");
       setBookingId(0);
     }, 1000);
   };
@@ -280,6 +287,16 @@ function QuickBillPage() {
                       <option value="Debit Card">Debit Card</option>
                       <option value="Bank Transfer">Bank Transfer</option>
                     </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Extra Hours</label>
+                    <input type="number" value={extraHours} onChange={(e) => setExtraHours(e.target.value)} placeholder="e.g. 3" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-600 outline-none transition-all text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Extra Hrs Charge</label>
+                    <input type="number" value={extraHoursAmount} onChange={(e) => setExtraHoursAmount(e.target.value)} placeholder="e.g. 500" className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-600 outline-none transition-all text-sm" />
                   </div>
                 </div>
                 <div>
@@ -381,6 +398,14 @@ function QuickBillPage() {
                       <td className="py-4 px-2 text-center font-medium text-slate-600">{calc.duration}</td>
                       <td className="py-4 px-2 text-right font-medium text-slate-600">Rs. {(hotelSettings.extraBedCharge || 350).toFixed(2)}</td>
                       <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {calc.extraBedTotal.toFixed(2)}</td>
+                    </tr>
+                  )}
+                  {calc.extraHoursTotal > 0 && (
+                    <tr className="border-b" style={{ borderColor: '#f1f5f9' }}>
+                      <td className="py-4 px-2 font-semibold" style={{ color: '#1e293b' }}>Extra Hours Charge ({calc.extraHours} hrs)</td>
+                      <td className="py-4 px-2 text-center font-medium text-slate-600">-</td>
+                      <td className="py-4 px-2 text-right font-medium text-slate-600">-</td>
+                      <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {calc.extraHoursTotal.toFixed(2)}</td>
                     </tr>
                   )}
                 </tbody>

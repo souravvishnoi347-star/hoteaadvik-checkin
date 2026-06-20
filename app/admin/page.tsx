@@ -62,6 +62,8 @@ function AdminDashboard() {
   const [roomType, setRoomType] = useState("");
   const [ratePerNight, setRatePerNight] = useState("");
   const [isExtraBed, setIsExtraBed] = useState(false);
+  const [extraHours, setExtraHours] = useState("");
+  const [extraHoursAmount, setExtraHoursAmount] = useState("");
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [guestGst, setGuestGst] = useState("");
   const [isDownloading, setIsDownloading] = useState(false);
@@ -270,6 +272,8 @@ function AdminDashboard() {
     setRatePerNight("");
     setPaymentMode("Cash");
     setGuestGst("");
+    setExtraHours("");
+    setExtraHoursAmount("");
     setIsModalOpen(true);
   };
 
@@ -311,7 +315,7 @@ function AdminDashboard() {
 
   // Calculations for Live Preview
   const getCalculations = () => {
-    if (!selectedBooking) return { checkIn: "", checkOut: "", duration: 1, rate: 0, subtotal: 0, gstAmount: 0, grandTotal: 0, advance: 0, balance: 0, extraBedTotal: 0 };
+    if (!selectedBooking) return { checkIn: "", checkOut: "", duration: 1, rate: 0, subtotal: 0, gstAmount: 0, grandTotal: 0, advance: 0, balance: 0, extraBedTotal: 0, extraHours: "0", extraHoursTotal: 0 };
     
     const checkInDate = new Date(selectedBooking.check_in_date);
     const checkOutDate = new Date(selectedBooking.check_out_date);
@@ -322,7 +326,8 @@ function AdminDashboard() {
     const rate = parseFloat(ratePerNight) || 0;
     const extraBedTotal = isExtraBed ? ((hotelSettings.extraBedCharge || 350) * duration) : 0;
     
-    const subtotal = (rate * duration) + extraBedTotal;
+    const extraHoursTotal = parseFloat(extraHoursAmount) || 0;
+    const subtotal = (rate * duration) + extraBedTotal + extraHoursTotal;
     const gstAmount = subtotal * ((hotelSettings.gstPercentage || 0) / 100);
     const grandTotal = subtotal + gstAmount;
 
@@ -334,7 +339,9 @@ function AdminDashboard() {
       subtotal,
       gstAmount,
       grandTotal,
-      extraBedTotal
+      extraBedTotal,
+      extraHours: extraHours || "0",
+      extraHoursTotal
     };
   };
 
@@ -704,6 +711,16 @@ function AdminDashboard() {
                     <option value="Bank Transfer">Bank Transfer</option>
                   </select>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Extra Hours</label>
+                    <input type="number" value={extraHours} onChange={(e) => setExtraHours(e.target.value)} placeholder="e.g. 3" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-600 outline-none transition-all text-sm text-gray-900 bg-white" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Extra Hrs Charge</label>
+                    <input type="number" value={extraHoursAmount} onChange={(e) => setExtraHoursAmount(e.target.value)} placeholder="e.g. 500" className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-600 outline-none transition-all text-sm text-gray-900 bg-white" />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-600 uppercase tracking-wider mb-2">Guest GSTIN (Optional)</label>
                   <input
@@ -830,6 +847,14 @@ function AdminDashboard() {
                           <td className="py-4 px-2 text-center font-medium text-slate-600">{calc.duration}</td>
                           <td className="py-4 px-2 text-right font-medium text-slate-600">Rs. {(hotelSettings.extraBedCharge || 350).toFixed(2)}</td>
                           <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {calc.extraBedTotal.toFixed(2)}</td>
+                        </tr>
+                      )}
+                      {calc.extraHoursTotal > 0 && (
+                        <tr className="border-b" style={{ borderColor: '#f1f5f9' }}>
+                          <td className="py-4 px-2 font-semibold" style={{ color: '#1e293b' }}>Extra Hours Charge ({calc.extraHours} hrs)</td>
+                          <td className="py-4 px-2 text-center font-medium text-slate-600">-</td>
+                          <td className="py-4 px-2 text-right font-medium text-slate-600">-</td>
+                          <td className="py-4 px-2 text-right font-bold text-slate-800">Rs. {calc.extraHoursTotal.toFixed(2)}</td>
                         </tr>
                       )}
                     </tbody>
