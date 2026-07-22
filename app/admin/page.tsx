@@ -130,8 +130,7 @@ function AdminDashboard() {
       const { data: bookingsData, error: bookingsError } = await supabase
         .from("Bookings")
         .select("*")
-        .order("created_at", { ascending: false })
-        .limit(50);
+        .order("created_at", { ascending: false });
 
       if (bookingsError) throw new Error(bookingsError.message);
 
