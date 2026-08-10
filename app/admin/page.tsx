@@ -13,6 +13,7 @@ type Booking = {
   total_amount?: number;
   agreed_price?: number;
   room_number?: string;
+  payment_mode?: string;
 };
 
 type Guest = {
@@ -54,6 +55,8 @@ function AdminDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totalExpensesToday, setTotalExpensesToday] = useState(0);
+  const [agentOutstanding, setAgentOutstanding] = useState(0);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -164,6 +167,30 @@ function AdminDashboard() {
       });
 
       setData(merged);
+
+      // Fetch today's expenses
+      const todayDateStr = new Date().toISOString().split('T')[0];
+      const { data: expensesData, error: expensesError } = await supabase
+        .from("Expenses")
+        .select("amount")
+        .eq("date", todayDateStr);
+      
+      if (!expensesError && expensesData) {
+        const todayExp = expensesData.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        setTotalExpensesToday(todayExp);
+      }
+
+      // Fetch agents outstanding
+      const { data: agentsData, error: agentsError } = await supabase
+        .from("Agents")
+        .select("total_credit, total_paid");
+
+      if (!agentsError && agentsData) {
+        const outstanding = agentsData.reduce((acc, curr) => {
+           return acc + ((Number(curr.total_credit) || 0) - (Number(curr.total_paid) || 0));
+        }, 0);
+        setAgentOutstanding(outstanding);
+      }
     } catch (err: any) {
       console.error(err);
       setError("Failed to fetch data. Ensure your session is valid and RLS allows SELECT.");
@@ -294,9 +321,9 @@ function AdminDashboard() {
 
       document.body.removeChild(printContainer);
 
-      // Update booking status in Supabase
+      // Update booking status and payment_mode in Supabase
       try {
-        await supabase.from("Bookings").update({ status: 'Checked-Out' }).eq('id', selectedBooking.id);
+        await supabase.from("Bookings").update({ status: 'Checked-Out', payment_mode: paymentMode }).eq('id', selectedBooking.id);
         fetchData();
       } catch (err) {
         console.error("Failed to update status:", err);
@@ -397,86 +424,158 @@ function AdminDashboard() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 flex-col md:flex-row relative">
+    <div className="flex h-screen bg-slate-50 flex-col md:flex-row relative min-w-0">
       <AdminSidebar activePath="/admin" hotelName={hotelSettings.hotelName} />
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-hidden z-0">
-        <main className="flex-1 p-4 md:p-8 overflow-y-auto">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden z-0">
+        <main className="flex-1 p-4 md:p-8 overflow-y-auto overflow-x-hidden">
           <div className="max-w-7xl mx-auto space-y-6">
-            {/* Header & Settings Button */}
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white/70 backdrop-blur-md p-6 rounded-3xl border border-white/60 shadow-sm">
+            {/* Clean Header */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 py-2 border-b border-slate-200 pb-6 mb-6">
               <div>
-                <h1 className="text-3xl font-extrabold text-slate-800 tracking-tight">Dashboard Overview</h1>
-                <p className="text-slate-500 mt-1">Manage bookings, guests, and hotel settings.</p>
+                <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Dashboard</h1>
+                <p className="text-slate-500 mt-1 text-sm">Here's what's happening at {hotelSettings.hotelName} today.</p>
               </div>
-              
-              <div className="flex items-center gap-3 w-full md:w-auto">
-                <button 
+              <div className="flex items-center gap-3">
+                <button
                   onClick={handleRefresh}
                   disabled={isRefreshing}
-                  className="flex items-center justify-center p-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl shadow-sm hover:bg-slate-50 transition-all"
+                  className="flex items-center justify-center w-10 h-10 bg-white hover:bg-slate-50 border border-slate-200 text-slate-500 rounded-full transition-all"
                   title="Refresh Data"
                 >
-                  <svg className={`w-5 h-5 text-indigo-600 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-[#3B82F6]' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                   </svg>
                 </button>
               </div>
             </div>
 
             {/* Quick Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-3xl p-6 text-white shadow-lg shadow-indigo-200 relative overflow-hidden">
-                <div className="relative z-10">
-                  <p className="text-indigo-100 text-sm font-medium uppercase tracking-wider mb-1">Recent Bookings</p>
-                  <h2 className="text-4xl font-black">{filteredData.length}</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              {/* Bookings card */}
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Bookings</p>
+                    <div className="w-8 h-8 bg-blue-50 text-[#3B82F6] rounded flex items-center justify-center">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                    </div>
+                  </div>
+                  <div className="flex items-baseline gap-3">
+                    <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{filteredData.length}</h2>
+                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                      Active
+                    </span>
+                  </div>
                 </div>
-                <svg className="absolute right-[-10%] top-[-10%] w-32 h-32 text-white opacity-10" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" /></svg>
+                <p className="text-slate-400 text-xs mt-6">
+                  {filteredData.filter(b => b.status !== 'Checked-Out').length} currently active
+                </p>
               </div>
-              <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-3xl p-6 text-white shadow-lg shadow-emerald-200 relative overflow-hidden">
-                <div className="relative z-10">
-                  <p className="text-emerald-100 text-sm font-medium uppercase tracking-wider mb-1">Active Check-ins</p>
-                  <h2 className="text-4xl font-black">{filteredData.filter(b => b.status !== 'Checked-Out').length}</h2>
+
+              {/* Guests card */}
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Guests</p>
+                    <div className="w-8 h-8 bg-emerald-50 text-emerald-500 rounded flex items-center justify-center">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+                    </div>
+                  </div>
+                  <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{filteredData.reduce((acc, curr) => acc + curr.total_guests, 0)}</h2>
                 </div>
-                <svg className="absolute right-[-10%] top-[-10%] w-32 h-32 text-white opacity-10" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                <p className="text-slate-400 text-xs mt-6">
+                  Recorded across all entries
+                </p>
               </div>
-              <div className="bg-gradient-to-br from-amber-500 to-orange-500 rounded-3xl p-6 text-white shadow-lg shadow-amber-200 relative overflow-hidden">
-                <div className="relative z-10">
-                  <p className="text-amber-100 text-sm font-medium uppercase tracking-wider mb-1">Total Guests</p>
-                  <h2 className="text-4xl font-black">{filteredData.reduce((acc, curr) => acc + curr.total_guests, 0)}</h2>
+
+              {/* Revenue card */}
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Gross Revenue</p>
+                    <div className="w-8 h-8 bg-[#C5A059]/10 text-[#C5A059] rounded flex items-center justify-center">
+                      <span className="font-bold text-sm">₹</span>
+                    </div>
+                  </div>
+                  <h2 className="text-4xl font-bold text-[#0F172A] tracking-tight">₹{filteredData.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0).toLocaleString('en-IN')}</h2>
                 </div>
-                <svg className="absolute right-[-10%] top-[-10%] w-32 h-32 text-white opacity-10" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" /></svg>
+                
+                <div className="mt-6">
+                  {(() => {
+                    const total = filteredData.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0);
+                    const cash = filteredData.reduce((acc, curr) => curr.payment_mode === 'Credit' ? acc : acc + (Number(curr.agreed_price) || 0), 0);
+                    const credit = total - cash;
+                    const cashPct = total === 0 ? 0 : Math.round((cash / total) * 100);
+                    const creditPct = total === 0 ? 0 : 100 - cashPct;
+                    return (
+                      <>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                          <div className="h-full bg-[#0F172A]" style={{ width: `${cashPct}%` }}></div>
+                          <div className="h-full bg-[#C5A059]" style={{ width: `${creditPct}%` }}></div>
+                        </div>
+                        <div className="flex justify-between mt-2 text-[10px] font-semibold text-slate-500 uppercase">
+                          <span>{cashPct}% Cash</span>
+                          <span>{creditPct}% Credit</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
               </div>
-              <div className="bg-gradient-to-br from-rose-500 to-rose-600 rounded-3xl p-6 text-white shadow-lg shadow-rose-200 relative overflow-hidden">
+            </div>
+
+            {/* Secondary Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-center">
+                <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest mb-2">Today's Expenses</p>
+                <h3 className="text-3xl font-bold text-rose-600">₹{totalExpensesToday.toLocaleString('en-IN')}</h3>
+              </div>
+              
+              <div className="bg-[#0F172A] border border-slate-800 rounded-xl p-6 shadow-md flex flex-col justify-center relative overflow-hidden group cursor-pointer" onClick={() => router.push('/admin/agents')}>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-[#C5A059]/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
                 <div className="relative z-10">
-                  <p className="text-rose-100 text-sm font-medium uppercase tracking-wider mb-1">Total Revenue</p>
-                  <h2 className="text-3xl font-black">Rs. {filteredData.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0).toLocaleString('en-IN')}</h2>
+                  <h3 className="text-lg font-bold text-white mb-1">Agent Outstanding</h3>
+                  <p className="text-slate-400 text-sm mb-4">Total pending commissions</p>
+                  <div className="flex items-center gap-3">
+                    <span className="bg-white text-[#0F172A] px-4 py-1.5 rounded text-sm font-bold">
+                      ₹{agentOutstanding.toLocaleString('en-IN')}
+                    </span>
+                  </div>
                 </div>
-                <svg className="absolute right-[-10%] top-[-10%] w-32 h-32 text-white opacity-10" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" /></svg>
               </div>
             </div>
 
           {error && (
-            <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">
+            <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl border border-red-200 flex items-center gap-3">
+              <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg>
               {error}
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-            <div className="relative w-full sm:w-96">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                placeholder="Search by Guest Name or Booking ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full p-2.5 bg-white border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none"
-              />
+          {/* Bookings Table Section */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="px-6 pt-6 pb-4 border-b border-slate-100">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-bold text-slate-800">Booking Records</h2>
+                  <p className="text-sm text-slate-400 mt-0.5">{filteredData.length} entries found</p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  <div className="relative w-full sm:w-72">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Search by name or ID..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9 w-full py-2.5 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-700"
+                    />
             </div>
             
             <div className="w-full sm:w-auto flex flex-col sm:flex-row items-center gap-2">
@@ -489,7 +588,7 @@ function AdminDashboard() {
                     setCustomEndDate("");
                   }
                 }}
-                className="w-full sm:w-auto p-2.5 bg-white border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-medium text-gray-700"
+                className="w-full sm:w-auto py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-semibold text-slate-700"
               >
                 <option value="All Time">All Time</option>
                 <option value="Today">Today's Check-ins</option>
@@ -499,44 +598,45 @@ function AdminDashboard() {
               </select>
 
               {dateFilter === "Custom Range" && (
-                <div className="flex items-center gap-2 w-full sm:w-auto animate-in fade-in slide-in-from-left-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <input
                     type="date"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="w-full sm:w-auto p-2.5 bg-white border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-medium text-gray-700"
+                    className="w-full sm:w-auto py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-medium text-slate-700"
                     title="Start Date"
                   />
-                  <span className="text-gray-500 font-medium px-1">to</span>
+                  <span className="text-slate-400 font-medium text-sm">to</span>
                   <input
                     type="date"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="w-full sm:w-auto p-2.5 bg-white border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-medium text-gray-700"
+                    className="w-full sm:w-auto py-2.5 px-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-medium text-slate-700"
                     title="End Date"
                   />
                 </div>
               )}
             </div>
-          </div>
+                </div>
+              </div>
+            </div>
 
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+            <div className="overflow-x-auto w-full">
+              <table className="min-w-[900px] w-full text-left border-collapse">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-100 text-sm font-medium text-gray-500 uppercase tracking-wider">
-                    <th className="px-6 py-4">Booking ID</th>
-                    <th className="px-6 py-4">Primary Guest</th>
-                    <th className="px-6 py-4">Check In</th>
-                    <th className="px-6 py-4">Check-Out</th>
-                    <th className="px-6 py-4">Room No</th>
-                    <th className="px-6 py-4">Agreed Price</th>
-                    <th className="px-6 py-4">Total Guests</th>
-                    <th className="px-6 py-4">Status</th>
-                    <th className="px-6 py-4 text-center">Action</th>
+                  <tr className="bg-slate-50 border-b border-slate-100">
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Booking ID</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Primary Guest</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Check In</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Check-Out</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Room No</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Agreed Price</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Total Guests</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-slate-50">
                   {isLoading ? (
                     <tr>
                       <td colSpan={7} className="px-6 py-12 text-center text-gray-400">

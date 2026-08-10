@@ -56,6 +56,21 @@ export default function CheckInForm() {
   const [maleGuests, setMaleGuests] = useState<number>(0);
   const [femaleGuests, setFemaleGuests] = useState<number>(0);
   const [idFiles, setIdFiles] = useState<{ [key: number]: File | null }>({});
+  
+  // Agent states
+  const [agents, setAgents] = useState<any[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [agentCommission, setAgentCommission] = useState<string>('');
+
+  React.useEffect(() => {
+    async function fetchAgents() {
+      const { data, error } = await supabase.from('Agents').select('*').eq('status', 'Active');
+      if (!error && data) {
+        setAgents(data);
+      }
+    }
+    fetchAgents();
+  }, []);
   const [idStatus, setIdStatus] = useState<{ [key: number]: 'idle' | 'scanning' | 'valid' | 'invalid' }>({});
   
   const [idBackFiles, setIdBackFiles] = useState<{ [key: number]: File | null }>({});
@@ -248,6 +263,23 @@ export default function CheckInForm() {
         throw guestsError;
       }
 
+      // 4. Update Agent if selected
+      if (selectedAgentId && agentCommission) {
+        const agentIdNum = parseInt(selectedAgentId);
+        const commissionNum = parseFloat(agentCommission);
+        const totalBookingGuests = 1 + maleGuests + femaleGuests;
+        
+        if (!isNaN(agentIdNum) && !isNaN(commissionNum) && commissionNum > 0) {
+           const { data: currentAgent } = await supabase.from('Agents').select('total_guests, total_credit').eq('id', agentIdNum).single();
+           if (currentAgent) {
+             await supabase.from('Agents').update({
+               total_guests: (currentAgent.total_guests || 0) + totalBookingGuests,
+               total_credit: (currentAgent.total_credit || 0) + commissionNum
+             }).eq('id', agentIdNum);
+           }
+        }
+      }
+
       // 4. On successful save
       setIsSubmitted(true);
       
@@ -387,18 +419,48 @@ export default function CheckInForm() {
                   />
                 </div>
               </div>
-              <div className="mt-4">
-                <label className="block text-sm font-medium text-slate-600 mb-1">Agreed Price (Rs.) *</label>
-                <input
-                  type="number"
-                  name="agreedPrice"
-                  value={primaryGuest.agreedPrice}
-                  onChange={handlePrimaryChange}
-                  required
-                  min="0"
-                  placeholder="e.g. 1500"
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white font-semibold"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1">Agreed Price (Rs.) *</label>
+                  <input
+                    type="number"
+                    name="agreedPrice"
+                    value={primaryGuest.agreedPrice}
+                    onChange={handlePrimaryChange}
+                    required
+                    min="0"
+                    placeholder="e.g. 1500"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-slate-50 focus:bg-white font-semibold"
+                  />
+                </div>
+                
+                <div className="bg-indigo-50/50 p-4 rounded-xl border border-indigo-100 sm:col-span-1">
+                  <label className="block text-sm font-medium text-indigo-900 mb-1">Referred By Agent (Optional)</label>
+                  <select
+                    value={selectedAgentId}
+                    onChange={(e) => setSelectedAgentId(e.target.value)}
+                    className="w-full px-4 py-2.5 rounded-lg border border-indigo-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-white mb-3"
+                  >
+                    <option value="">-- No Agent (Direct Booking) --</option>
+                    {agents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
+                  
+                  {selectedAgentId && (
+                    <>
+                      <label className="block text-sm font-medium text-indigo-900 mb-1">Commission (Rs.)</label>
+                      <input
+                        type="number"
+                        value={agentCommission}
+                        onChange={(e) => setAgentCommission(e.target.value)}
+                        min="0"
+                        placeholder="e.g. 200"
+                        className="w-full px-4 py-2.5 rounded-lg border border-indigo-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-slate-700 bg-white font-semibold"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>

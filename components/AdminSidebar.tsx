@@ -47,6 +47,24 @@ export default function AdminSidebar({ activePath, hotelName }: AdminSidebarProp
       )
     },
     {
+      name: "Expenses",
+      path: "/admin/expenses",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+      )
+    },
+    {
+      name: "Agents",
+      path: "/admin/agents",
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      )
+    },
+    {
       name: "Settings",
       path: "/admin/settings",
       icon: (
@@ -93,9 +111,9 @@ export default function AdminSidebar({ activePath, hotelName }: AdminSidebarProp
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 w-64 bg-slate-900 text-white shadow-2xl flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 shrink-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside className={`fixed inset-y-0 left-0 w-64 bg-[#0F172A] text-slate-300 shadow-xl flex flex-col justify-between z-50 transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 shrink-0 ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="overflow-y-auto no-scrollbar">
-          <div className="p-6 text-center border-b border-slate-800 flex flex-col items-center relative">
+          <div className="p-6 border-b border-slate-800 flex flex-col relative">
             <button 
               onClick={() => setIsOpen(false)} 
               className="absolute top-4 right-4 md:hidden text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors"
@@ -104,39 +122,48 @@ export default function AdminSidebar({ activePath, hotelName }: AdminSidebarProp
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                </svg>
             </button>
-            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-3 overflow-hidden shadow-lg p-1 mt-2 md:mt-0">
-               <img src="/logo.png" alt="Logo" className="w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            <div className="flex flex-col items-center mb-2">
+              <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-3 overflow-hidden shadow-lg p-1 border border-slate-700">
+                <img src="/logo.png" alt="Logo" className="w-full h-full object-contain rounded-full" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+              </div>
+              <div className="text-center">
+                <h1 className="text-lg font-bold tracking-tight text-white leading-tight">
+                  Admin Panel
+                </h1>
+                <p className="text-slate-400 text-[10px] uppercase tracking-widest font-semibold mt-1">{hotelName || "Hotel App"}</p>
+              </div>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Admin Panel
-            </h1>
-            <p className="text-slate-400 text-sm mt-1">{hotelName || "Hotel App"}</p>
           </div>
-          <nav className="p-4">
-            <ul className="space-y-2">
-              {navItems.map((item) => (
-                <li key={item.name}>
-                  <a 
-                    href={item.path} 
-                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium ${
-                      activePath === item.path 
-                        ? "bg-indigo-600 text-white shadow-md shadow-indigo-900/20" 
-                        : "text-slate-300 hover:bg-slate-800 hover:text-white"
-                    }`}
-                  >
-                    {item.icon}
-                    {item.name}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          <div className="px-4 py-5">
+            <button className="w-full bg-white text-slate-900 font-semibold py-2.5 rounded-lg shadow-sm hover:bg-slate-100 transition-colors mb-6 text-sm">
+              New Reservation
+            </button>
+            <nav>
+              <ul className="space-y-1">
+                {navItems.map((item) => (
+                  <li key={item.name}>
+                    <a 
+                      href={item.path} 
+                      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-medium text-sm ${
+                        activePath === item.path 
+                          ? "bg-[#1E293B] text-[#C5A059] border-l-2 border-[#C5A059] shadow-sm" 
+                          : "text-slate-400 hover:bg-[#1E293B]/50 hover:text-slate-200"
+                      }`}
+                    >
+                      {item.icon}
+                      {item.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          </div>
         </div>
 
-        <div className="p-4 border-t border-slate-800 bg-slate-900">
+        <div className="p-4 border-t border-slate-800 bg-[#0F172A]/80">
           <button 
             onClick={handleLogout}
-            className="flex items-center justify-center gap-3 w-full px-4 py-3 text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-xl transition-colors font-bold border border-transparent hover:border-red-500/20"
+            className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-slate-400 hover:bg-rose-500/10 hover:text-rose-400 rounded-lg transition-colors font-medium"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
