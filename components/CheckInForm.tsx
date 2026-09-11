@@ -78,6 +78,8 @@ export default function CheckInForm() {
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [submittedBookingId, setSubmittedBookingId] = useState<number | null>(null);
+  const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
   const handlePrimaryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -281,7 +283,33 @@ export default function CheckInForm() {
       }
 
       // 4. On successful save
+      setSubmittedBookingId(bookingId);
       setIsSubmitted(true);
+
+      // 5. Send WhatsApp Confirmation in Background
+      if (primaryGuest.phone) {
+        setWhatsappStatus('sending');
+        fetch('/api/whatsapp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: primaryGuest.phone,
+            guestName: primaryGuest.name,
+            bookingId: bookingId,
+            checkInDate: primaryGuest.checkInDate,
+            checkOutDate: primaryGuest.checkOutDate,
+            agreedPrice: primaryGuest.agreedPrice,
+            totalGuests: 1 + maleGuests + femaleGuests,
+            sender: 'ai'
+          })
+        })
+        .then(res => res.json())
+        .then(() => setWhatsappStatus('sent'))
+        .catch(e => {
+          console.error("WhatsApp trigger error:", e);
+          setWhatsappStatus('failed');
+        });
+      }
       
     } catch (err: any) {
       console.error("Submission Error:", err);
@@ -293,6 +321,8 @@ export default function CheckInForm() {
 
   const handleReset = () => {
     setIsSubmitted(false);
+    setSubmittedBookingId(null);
+    setWhatsappStatus('idle');
     setPrimaryGuest({ name: '', age: '', phone: '', checkInDate: '', checkOutDate: '', agreedPrice: '' });
     setMaleGuests(0);
     setFemaleGuests(0);
@@ -313,13 +343,34 @@ export default function CheckInForm() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="text-3xl font-extrabold text-slate-900 mb-4 tracking-tight">Check-in Complete!</h2>
-          <p className="text-slate-500 mb-8 text-lg leading-relaxed">
+          <h2 className="text-3xl font-extrabold text-slate-900 mb-2 tracking-tight">Check-in Complete!</h2>
+          <p className="text-slate-500 mb-6 text-sm leading-relaxed">
             Welcome to Hotel Aadvik INN. Your details have been verified. Please collect your room keys from the reception.
           </p>
+
+          {/* WhatsApp Confirmation Status Banner */}
+          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-left">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-lg shadow-sm">
+                💬
+              </div>
+              <div>
+                <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">WhatsApp Confirmation</p>
+                <p className="text-xs font-semibold text-emerald-950 mt-0.5">
+                  {whatsappStatus === 'sending' ? 'Sending confirmation...' : `Sent to +${primaryGuest.phone}`}
+                </p>
+              </div>
+            </div>
+            {submittedBookingId && (
+              <span className="text-xs font-bold text-emerald-700 bg-white px-2.5 py-1 rounded-lg border border-emerald-200 shadow-xs">
+                #{submittedBookingId}
+              </span>
+            )}
+          </div>
+
           <button
             onClick={handleReset}
-            className="w-full py-4 text-white text-lg font-semibold rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-[0.98]"
+            className="w-full py-4 text-white text-base font-semibold rounded-2xl bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all active:scale-[0.98]"
           >
             Check-in Another Guest
           </button>

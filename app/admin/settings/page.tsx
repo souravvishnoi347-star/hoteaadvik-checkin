@@ -19,7 +19,11 @@ function AdminSettings() {
     gstin: "",
     contact: "+91 9719350125",
     gstPercentage: 0,
-    extraBedCharge: 350
+    extraBedCharge: 350,
+    aiProvider: "gemini",
+    geminiApiKey: "",
+    openRouterApiKey: "",
+    masterPin: "9999"
   });
 
   useEffect(() => {
@@ -175,11 +179,98 @@ function AdminSettings() {
               </div>
             </div>
 
+            {/* AI Concierge Configuration */}
+            <div className="mt-10 pt-8 border-t border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-xl">🤖</span>
+                <h3 className="text-lg font-bold text-gray-800">AI Concierge & WhatsApp Brain</h3>
+              </div>
+              <p className="text-xs text-slate-500 mb-6">
+                Connect your AI API key to automatically answer customer WhatsApp questions (Wi-Fi, Check-out, Directions, Room service).
+              </p>
+
+              <div className="space-y-5">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">AI Provider</label>
+                  <select
+                    name="aiProvider"
+                    value={settings.aiProvider || "gemini"}
+                    onChange={(e) => setSettings(prev => ({ ...prev, aiProvider: e.target.value }))}
+                    className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-gray-800 bg-white"
+                  >
+                    <option value="gemini">Google Gemini 1.5 Flash (Recommended - 100% Free 1,500 req/day)</option>
+                    <option value="openrouter">OpenRouter (Meta Llama 3 / Mistral Free)</option>
+                  </select>
+                </div>
+
+                {settings.aiProvider === "gemini" ? (
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                      Google Gemini API Key
+                    </label>
+                    <input
+                      type="password"
+                      name="geminiApiKey"
+                      value={settings.geminiApiKey || ""}
+                      onChange={handleChange}
+                      placeholder="AIzaSy..."
+                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-gray-800 font-mono text-sm"
+                    />
+                    <p className="text-[11px] text-emerald-600 mt-1 font-semibold flex items-center gap-1">
+                      ✨ Get 100% Free API Key at <a href="https://aistudio.google.com" target="_blank" rel="noreferrer" className="underline font-bold">aistudio.google.com</a> (1,500 free queries every day).
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 mb-1">
+                      OpenRouter API Key
+                    </label>
+                    <input
+                      type="password"
+                      name="openRouterApiKey"
+                      value={settings.openRouterApiKey || ""}
+                      onChange={handleChange}
+                      placeholder="sk-or-v1-..."
+                      className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-gray-800 font-mono text-sm"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                      Get key from <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="underline text-indigo-600 font-bold">openrouter.ai</a>.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Master Security PIN (Forgot Password Recovery) */}
+            <div className="mt-10 pt-8 border-t border-gray-100">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xl">🔐</span>
+                <h3 className="text-lg font-bold text-gray-800">Master Security PIN (Password Recovery)</h3>
+              </div>
+              <p className="text-xs text-slate-500 mb-4">
+                This 4-digit Master PIN is used to reset the Admin password from the login page if forgotten.
+              </p>
+
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Master Recovery PIN</label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  name="masterPin"
+                  value={settings.masterPin || "9999"}
+                  onChange={handleChange}
+                  placeholder="e.g. 9999"
+                  className="w-48 px-4 py-3 rounded-lg border border-gray-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-colors outline-none text-gray-800 font-mono text-base font-bold tracking-widest"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">Default PIN is 9999. Keep this PIN safe.</p>
+              </div>
+            </div>
+
             <div className="mt-8 pt-6 border-t border-gray-100 text-right">
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center gap-2"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-lg transition-colors disabled:opacity-50 inline-flex items-center gap-2 shadow-sm"
               >
                 {isSaving ? "Saving..." : "Save Settings"}
               </button>
