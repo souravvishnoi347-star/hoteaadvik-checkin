@@ -85,41 +85,99 @@ export default function CheckInForm() {
   const [cameraModal, setCameraModal] = useState<{ isOpen: boolean; target: 'front' | 'back' | null }>({ isOpen: false, target: null });
   const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  const startCamera = async (facing: 'environment' | 'user' = 'environment') => {
-    setCameraError(null);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
+  // Automatically start and attach camera stream when modal opens
+  React.useEffect(() => {
+    if (!cameraModal.isOpen) {
+      setIsStreaming(false);
+      return;
     }
-    try {
-      let stream: MediaStream;
+
+    let active = true;
+    let localStream: MediaStream | null = null;
+
+    async function initCamera() {
+      setCameraError(null);
+      setIsStreaming(false);
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }
-        });
-      } catch {
-        // Fallback for laptop/desktop webcams without facingMode constraint
-        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Camera API not supported on this browser/network. Make sure you are on HTTPS or localhost.");
+        }
+
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { 
+              facingMode: { ideal: cameraFacing }, 
+              width: { ideal: 1920 }, 
+              height: { ideal: 1080 } 
+            }
+          });
+        } catch {
+          // Fallback if specific facingMode constraint fails (e.g. PC webcam)
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+
+        if (!active) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
+        localStream = stream;
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play().then(() => {
+              if (active) setIsStreaming(true);
+            }).catch(e => console.log("Video play error:", e));
+          };
+        }
+      } catch (err: any) {
+        console.error("Camera access error:", err);
+        if (active) {
+          setCameraError(
+            err.name === "NotAllowedError" || err.name === "PermissionDeniedError"
+              ? "Camera permission was denied in your browser settings. Please allow camera access."
+              : "Unable to start live camera stream. You can use your phone's native camera directly below."
+          );
+        }
       }
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
+    }
+
+    initCamera();
+
+    return () => {
+      active = false;
+      setIsStreaming(false);
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
       }
-    } catch (err: any) {
-      console.error("Camera access error:", err);
-      setCameraError("Camera permission denied or camera not found. Please allow camera access or use the Gallery button.");
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [cameraModal.isOpen, cameraFacing]);
+
+  const handleNativeCameraSnap = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    if (file) {
+      if (cameraModal.target === 'front') {
+        processIdFile(0, file);
+      } else {
+        processBackFile(0, file);
+      }
+      stopCamera();
     }
   };
 
   const openCamera = (target: 'front' | 'back') => {
     setCameraModal({ isOpen: true, target });
-    setTimeout(() => {
-      startCamera(cameraFacing);
-    }, 100);
   };
 
   const stopCamera = () => {
@@ -132,9 +190,7 @@ export default function CheckInForm() {
   };
 
   const flipCamera = () => {
-    const nextFacing = cameraFacing === 'environment' ? 'user' : 'environment';
-    setCameraFacing(nextFacing);
-    startCamera(nextFacing);
+    setCameraFacing(prev => (prev === 'environment' ? 'user' : 'environment'));
   };
 
   const capturePhoto = () => {
@@ -804,14 +860,28 @@ export default function CheckInForm() {
 
             {cameraError ? (
               <div className="p-6 text-center text-red-300 text-sm space-y-4">
-                <p>{cameraError}</p>
-                <button
-                  type="button"
-                  onClick={stopCamera}
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-semibold text-white"
-                >
-                  Close & Upload from Gallery
-                </button>
+                <p className="text-xs sm:text-sm bg-red-950/40 p-3 rounded-xl border border-red-800/40">{cameraError}</p>
+                
+                <div className="flex flex-col gap-2.5 pt-2">
+                  <label className="cursor-pointer px-4 py-3 bg-gradient-to-r from-[#C5A059] to-amber-600 hover:from-amber-500 hover:to-amber-700 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg transition">
+                    <span>📱 Open Phone Camera App</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment" 
+                      onChange={handleNativeCameraSnap} 
+                      className="hidden" 
+                    />
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-300"
+                  >
+                    Cancel / Choose from Gallery
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="w-full flex flex-col items-center">
@@ -824,30 +894,56 @@ export default function CheckInForm() {
                     muted
                     className="w-full h-full object-cover"
                   />
+
+                  {/* Loading spinner while video stream initializes */}
+                  {!isStreaming && (
+                    <div className="absolute inset-0 bg-slate-950/80 flex flex-col items-center justify-center gap-2 text-slate-400">
+                      <div className="w-8 h-8 border-2 border-[#C5A059] border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs font-medium">Starting camera...</span>
+                    </div>
+                  )}
+
                   {/* ID Card Framing Guide */}
-                  <div className="absolute inset-4 sm:inset-6 border-2 border-dashed border-[#C5A059] rounded-xl pointer-events-none flex items-center justify-center">
-                    <span className="bg-black/70 px-3 py-1 rounded-full text-[11px] text-[#C5A059] font-semibold backdrop-blur-sm">
-                      Align ID Card inside box
-                    </span>
-                  </div>
+                  {isStreaming && (
+                    <div className="absolute inset-4 sm:inset-6 border-2 border-dashed border-[#C5A059] rounded-xl pointer-events-none flex items-center justify-center animate-in fade-in">
+                      <span className="bg-black/70 px-3 py-1 rounded-full text-[11px] text-[#C5A059] font-semibold backdrop-blur-sm">
+                        Align ID Card inside box
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Direct Phone Camera Option */}
+                <div className="w-full flex items-center justify-between pt-3 px-2">
+                  <label className="cursor-pointer text-[11px] font-semibold text-[#C5A059] hover:underline flex items-center gap-1">
+                    <span>📱 Prefer Phone Camera App? Tap here</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      capture="environment" 
+                      onChange={handleNativeCameraSnap} 
+                      className="hidden" 
+                    />
+                  </label>
                 </div>
 
                 {/* Camera Action Buttons */}
-                <div className="w-full flex items-center justify-between pt-4 px-4 mt-2">
+                <div className="w-full flex items-center justify-between pt-3 px-4">
                   <button
                     type="button"
                     onClick={flipCamera}
                     className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 hover:text-white transition flex items-center gap-1.5 text-xs font-semibold"
                     title="Switch Camera (Front/Back)"
                   >
-                    🔄 Switch Cam
+                    🔄 Flip Cam
                   </button>
 
                   {/* Big Capture Shutter Button */}
                   <button
                     type="button"
                     onClick={capturePhoto}
-                    className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 p-1 flex items-center justify-center shadow-lg shadow-white/10 active:scale-95 transition"
+                    disabled={!isStreaming}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 disabled:opacity-50 p-1 flex items-center justify-center shadow-lg shadow-white/10 active:scale-95 transition"
                     title="Capture Photo"
                   >
                     <div className="w-13 h-13 rounded-full border-2 border-slate-900 bg-red-600 flex items-center justify-center">
