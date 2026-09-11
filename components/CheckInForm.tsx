@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Tesseract from 'tesseract.js';
 import { supabase } from '../utils/supabase';
 import imageCompression from 'browser-image-compression';
@@ -81,16 +81,90 @@ export default function CheckInForm() {
   const [submittedBookingId, setSubmittedBookingId] = useState<number | null>(null);
   const [whatsappStatus, setWhatsappStatus] = useState<'idle' | 'sending' | 'sent' | 'failed'>('idle');
 
+  // Live Camera Modal states
+  const [cameraModal, setCameraModal] = useState<{ isOpen: boolean; target: 'front' | 'back' | null }>({ isOpen: false, target: null });
+  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment');
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const startCamera = async (facing: 'environment' | 'user' = 'environment') => {
+    setCameraError(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+      } catch {
+        // Fallback for laptop/desktop webcams without facingMode constraint
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err: any) {
+      console.error("Camera access error:", err);
+      setCameraError("Camera permission denied or camera not found. Please allow camera access or use the Gallery button.");
+    }
+  };
+
+  const openCamera = (target: 'front' | 'back') => {
+    setCameraModal({ isOpen: true, target });
+    setTimeout(() => {
+      startCamera(cameraFacing);
+    }, 100);
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    setCameraModal({ isOpen: false, target: null });
+    setCameraError(null);
+  };
+
+  const flipCamera = () => {
+    const nextFacing = cameraFacing === 'environment' ? 'user' : 'environment';
+    setCameraFacing(nextFacing);
+    startCamera(nextFacing);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const file = new File([blob], `id_${cameraModal.target}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      if (cameraModal.target === 'front') {
+        processIdFile(0, file);
+      } else {
+        processBackFile(0, file);
+      }
+      stopCamera();
+    }, 'image/jpeg', 0.95);
+  };
+
   const handlePrimaryChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setPrimaryGuest((prev) => ({ ...prev, [name]: value }));
   };
 
-
-
-  const handleFileChange = async (guestIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] || null;
-    
+  const processIdFile = async (guestIndex: number, file: File | null) => {
     if (!file) {
       setIdFiles((prev) => ({ ...prev, [guestIndex]: null }));
       setIdStatus((prev) => ({ ...prev, [guestIndex]: 'idle' }));
@@ -148,8 +222,12 @@ export default function CheckInForm() {
     }
   };
 
-  const handleBackFileChange = async (guestIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (guestIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
+    processIdFile(guestIndex, file);
+  };
+
+  const processBackFile = async (guestIndex: number, file: File | null) => {
     if (!file) {
       setIdBackFiles((prev) => ({ ...prev, [guestIndex]: null }));
       setIdBackStatus((prev) => ({ ...prev, [guestIndex]: 'idle' }));
@@ -167,6 +245,11 @@ export default function CheckInForm() {
     }
     
     setIdBackFiles((prev) => ({ ...prev, [guestIndex]: fileToStore as File }));
+  };
+
+  const handleBackFileChange = (guestIndex: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    processBackFile(guestIndex, file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -583,19 +666,14 @@ export default function CheckInForm() {
                       </div>
                     ) : (
                       <div className="flex gap-2 w-full">
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={(e) => handleFileChange(0, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Take Photo"
-                          />
-                          <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}>
-                            <span className="text-base">📷</span> Camera
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('front')}
+                          className={`w-1/2 text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 cursor-pointer ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}
+                          title="Open Live Camera"
+                        >
+                          <span className="text-base">📷</span> Camera
+                        </button>
                         <div className="relative w-1/2">
                           <input
                             type="file"
@@ -626,19 +704,14 @@ export default function CheckInForm() {
                       </div>
                     ) : (
                       <div className="flex gap-2 w-full">
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={(e) => handleBackFileChange(0, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Take Photo"
-                          />
-                          <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm">
-                            <span className="text-base">📷</span> Camera
-                          </div>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openCamera('back')}
+                          className="w-1/2 text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm cursor-pointer"
+                          title="Open Live Camera"
+                        >
+                          <span className="text-base">📷</span> Camera
+                        </button>
                         <div className="relative w-1/2">
                           <input
                             type="file"
@@ -706,6 +779,97 @@ export default function CheckInForm() {
           
         </form>
       </div>
+
+      {/* Live Camera Viewfinder Modal */}
+      {cameraModal.isOpen && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-lg w-full shadow-2xl flex flex-col items-center relative text-white">
+            
+            {/* Modal Header */}
+            <div className="w-full flex items-center justify-between pb-3 mb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📷</span>
+                <h3 className="font-bold text-sm sm:text-base">
+                  Capture {cameraModal.target === 'front' ? 'Front Side' : 'Back Side'} of ID
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition"
+              >
+                ✕
+              </button>
+            </div>
+
+            {cameraError ? (
+              <div className="p-6 text-center text-red-300 text-sm space-y-4">
+                <p>{cameraError}</p>
+                <button
+                  type="button"
+                  onClick={stopCamera}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-xl text-xs font-semibold text-white"
+                >
+                  Close & Upload from Gallery
+                </button>
+              </div>
+            ) : (
+              <div className="w-full flex flex-col items-center">
+                {/* Live Video Viewfinder */}
+                <div className="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover"
+                  />
+                  {/* ID Card Framing Guide */}
+                  <div className="absolute inset-4 sm:inset-6 border-2 border-dashed border-[#C5A059] rounded-xl pointer-events-none flex items-center justify-center">
+                    <span className="bg-black/70 px-3 py-1 rounded-full text-[11px] text-[#C5A059] font-semibold backdrop-blur-sm">
+                      Align ID Card inside box
+                    </span>
+                  </div>
+                </div>
+
+                {/* Camera Action Buttons */}
+                <div className="w-full flex items-center justify-between pt-4 px-4 mt-2">
+                  <button
+                    type="button"
+                    onClick={flipCamera}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-300 hover:text-white transition flex items-center gap-1.5 text-xs font-semibold"
+                    title="Switch Camera (Front/Back)"
+                  >
+                    🔄 Switch Cam
+                  </button>
+
+                  {/* Big Capture Shutter Button */}
+                  <button
+                    type="button"
+                    onClick={capturePhoto}
+                    className="w-16 h-16 rounded-full bg-white hover:bg-slate-100 p-1 flex items-center justify-center shadow-lg shadow-white/10 active:scale-95 transition"
+                    title="Capture Photo"
+                  >
+                    <div className="w-13 h-13 rounded-full border-2 border-slate-900 bg-red-600 flex items-center justify-center">
+                      <div className="w-4 h-4 rounded-full bg-white"></div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="text-xs text-slate-400 hover:text-white transition font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
