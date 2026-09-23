@@ -36,6 +36,22 @@ type MergedBookingData = Booking & {
 import dynamic from "next/dynamic";
 import AdminSidebar from "@/components/AdminSidebar";
 
+const normalizeDateStr = (dateStr?: string | null): string => {
+  if (!dateStr) return "";
+  const trimmed = dateStr.trim();
+  if (trimmed.length >= 10 && trimmed.charAt(4) === "-" && trimmed.charAt(7) === "-") {
+    return trimmed.slice(0, 10);
+  }
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return trimmed;
+};
+
 function AdminDashboard() {
   const router = useRouter();
   
@@ -144,6 +160,12 @@ function AdminDashboard() {
 
       if (guestsError) throw new Error(guestsError.message);
 
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const isPastCheckoutTime = now.getHours() >= 11; // 11:00 AM standard hotel checkout time
+
+      const autoCheckoutIds: number[] = [];
+
       const merged: MergedBookingData[] = (bookingsData || []).map((booking: Booking) => {
         const relatedGuests = (guestsData || []).filter(
           (g: Guest) => g.booking_id === booking.id
@@ -157,8 +179,18 @@ function AdminDashboard() {
           ? relatedGuests[0].phone 
           : "";
 
+        let currentStatus = booking.status;
+        if (currentStatus === 'checked_in') {
+          const outDate = normalizeDateStr(booking.check_out_date);
+          if (outDate && (outDate < todayStr || (outDate === todayStr && isPastCheckoutTime))) {
+            currentStatus = 'Checked-Out';
+            autoCheckoutIds.push(booking.id);
+          }
+        }
+
         return {
           ...booking,
+          status: currentStatus,
           primary_guest_name: primaryGuestName,
           primary_guest_phone: primaryGuestPhone,
           total_guests: relatedGuests.length,
@@ -167,6 +199,15 @@ function AdminDashboard() {
       });
 
       setData(merged);
+
+      // Persist auto check-outs to Supabase in background
+      if (autoCheckoutIds.length > 0) {
+        supabase
+          .from("Bookings")
+          .update({ status: 'Checked-Out' })
+          .in('id', autoCheckoutIds)
+          .then();
+      }
 
       // Fetch today's expenses
       const todayDateStr = new Date().toISOString().split('T')[0];
@@ -251,6 +292,25 @@ function AdminDashboard() {
       fetchData();
     } catch (err: any) {
       alert("Failed to confirm booking: " + err.message);
+      setIsLoading(false);
+    }
+  };
+
+  const handleDirectCheckOut = async (booking: MergedBookingData) => {
+    if (!window.confirm(`Check out Room ${booking.room_number ? 'Room ' + booking.room_number : ''} (${booking.primary_guest_name}) now?\n\nThis will mark the guest as Checked-Out and free up the room without needing to generate a PDF bill.`)) {
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from("Bookings")
+        .update({ status: 'Checked-Out' })
+        .eq('id', booking.id);
+      if (error) throw error;
+      alert(`✅ Room ${booking.room_number || ''} (${booking.primary_guest_name}) has been checked out successfully!`);
+      fetchData();
+    } catch (err: any) {
+      alert("Failed to check out: " + err.message);
       setIsLoading(false);
     }
   };
@@ -748,6 +808,18 @@ function AdminDashboard() {
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                                 </svg>
                                 Confirm Check-In
+                              </button>
+                            )}
+                            {booking.status === 'checked_in' && (
+                              <button
+                                onClick={() => handleDirectCheckOut(booking)}
+                                className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-amber-400 hover:text-amber-300 px-3 py-1.5 rounded-md text-xs font-bold shadow-sm transition-all"
+                                title="Quick Check-Out (Free Up Room without Bill)"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                                Check Out
                               </button>
                             )}
                             <button

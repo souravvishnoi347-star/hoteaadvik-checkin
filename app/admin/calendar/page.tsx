@@ -205,9 +205,23 @@ export default function CalendarPage() {
 
       if (gError) throw gError;
 
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const isPastCheckoutTime = now.getHours() >= 11; // 11:00 AM hotel checkout time
+      const autoCheckoutIds: number[] = [];
+
       const merged: MergedBooking[] = (bookingsData || []).map((b: any) => {
         const related = (guestsData || []).filter((g: Guest) => g.booking_id === b.id);
         
+        let currentStatus = b.status;
+        if (currentStatus === 'checked_in') {
+          const outDate = normalizeDateStr(b.check_out_date);
+          if (outDate && (outDate < todayStr || (outDate === todayStr && isPastCheckoutTime))) {
+            currentStatus = 'Checked-Out';
+            autoCheckoutIds.push(b.id);
+          }
+        }
+
         // Parse advance and balance
         let adv = Number(b.advance_amount) || 0;
         let bal = Number(b.balance_amount) || 0;
@@ -225,6 +239,7 @@ export default function CalendarPage() {
 
         return {
           ...b,
+          status: currentStatus,
           primary_guest_name: related.length > 0 ? related[0].name : "Guest",
           primary_guest_phone: related.length > 0 ? (related[0].phone || "") : "",
           total_guests: related.length,
@@ -235,6 +250,15 @@ export default function CalendarPage() {
       });
 
       setBookings(merged);
+
+      // Persist auto check-outs in background
+      if (autoCheckoutIds.length > 0) {
+        supabase
+          .from("Bookings")
+          .update({ status: 'Checked-Out' })
+          .in('id', autoCheckoutIds)
+          .then();
+      }
     } catch (err: any) {
       console.error("Error fetching calendar data:", err);
     } finally {
@@ -514,6 +538,31 @@ export default function CalendarPage() {
       fetchCalendarData();
     } catch (err: any) {
       alert("Error confirming booking: " + err.message);
+    } finally {
+      setIsProcessingCheckIn(false);
+    }
+  };
+
+  // 1-Click Check Out Booking (Free Up Room without Bill)
+  const handleDirectCheckOutBooking = async () => {
+    if (!selectedBooking) return;
+    if (!window.confirm(`Check out Room ${selectedBooking.room_number} (${selectedBooking.primary_guest_name}) now?\n\nThis will mark the guest as Checked-Out and immediately free up Room ${selectedBooking.room_number} without needing a PDF bill.`)) {
+      return;
+    }
+    try {
+      setIsProcessingCheckIn(true);
+      const { error } = await supabase
+        .from("Bookings")
+        .update({ status: 'Checked-Out' })
+        .eq('id', selectedBooking.id);
+
+      if (error) throw error;
+
+      alert(`✅ Room ${selectedBooking.room_number} (${selectedBooking.primary_guest_name}) has been checked out successfully!`);
+      setIsDetailModalOpen(false);
+      fetchCalendarData();
+    } catch (err: any) {
+      alert("Error checking out: " + err.message);
     } finally {
       setIsProcessingCheckIn(false);
     }
@@ -1046,6 +1095,27 @@ export default function CalendarPage() {
                         Direct Confirm Check-In
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Quick Check-Out for In-House Guests */}
+                {selectedBooking.status === "checked_in" && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-bold text-slate-800">Guest Ready to Depart?</p>
+                      <p className="text-[11px] text-slate-500">Free up this room instantly without generating a bill.</p>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={isProcessingCheckIn}
+                      onClick={handleDirectCheckOutBooking}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                      </svg>
+                      Quick Check-Out
+                    </button>
                   </div>
                 )}
 
