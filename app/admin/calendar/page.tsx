@@ -151,15 +151,22 @@ export default function CalendarPage() {
   // Normalize date string to YYYY-MM-DD
   const normalizeDateStr = (dateStr?: string | null): string => {
     if (!dateStr) return "";
-    const trimmed = dateStr.trim();
-    if (trimmed.length >= 10 && trimmed.charAt(4) === "-" && trimmed.charAt(7) === "-") {
-      return trimmed.slice(0, 10);
+    const trimmed = String(dateStr).trim();
+    // 1. Check YYYY-MM-DD or YYYY/MM/DD
+    const ymdMatch = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    if (ymdMatch) {
+      return `${ymdMatch[1]}-${String(ymdMatch[2]).padStart(2, "0")}-${String(ymdMatch[3]).padStart(2, "0")}`;
     }
-    const d = new Date(trimmed);
-    if (!isNaN(d.getTime())) {
-      const year = d.getFullYear();
-      const month = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
+    // 2. Check DD-MM-YYYY or DD/MM/YYYY
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+    if (dmyMatch) {
+      return `${dmyMatch[3]}-${String(dmyMatch[2]).padStart(2, "0")}-${String(dmyMatch[1]).padStart(2, "0")}`;
+    }
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getDate()).padStart(2, "0");
       return `${year}-${month}-${day}`;
     }
     return trimmed;
@@ -213,13 +220,18 @@ export default function CalendarPage() {
       const merged: MergedBooking[] = (bookingsData || []).map((b: any) => {
         const related = (guestsData || []).filter((g: Guest) => g.booking_id === b.id);
         
-        let currentStatus = b.status;
-        if (currentStatus === 'checked_in') {
-          const outDate = normalizeDateStr(b.check_out_date);
-          if (outDate && (outDate < todayStr || (outDate === todayStr && isPastCheckoutTime))) {
-            currentStatus = 'Checked-Out';
-            autoCheckoutIds.push(b.id);
-          }
+        let currentStatus = b.status || 'checked_in';
+        const outDate = normalizeDateStr(b.check_out_date);
+
+        // Auto Checkout:
+        // 1. ALL past entries where checkout date is before today (< todayStr):
+        // 2. Today's entries where checkout time (11:00 AM) is passed and status is checked_in:
+        const isPastCheckoutDate = Boolean(outDate && outDate < todayStr);
+        const isTodayCheckoutExpired = Boolean(outDate && outDate === todayStr && isPastCheckoutTime && currentStatus === 'checked_in');
+
+        if (currentStatus !== 'Checked-Out' && (isPastCheckoutDate || isTodayCheckoutExpired)) {
+          currentStatus = 'Checked-Out';
+          autoCheckoutIds.push(b.id);
         }
 
         // Parse advance and balance
@@ -251,13 +263,18 @@ export default function CalendarPage() {
 
       setBookings(merged);
 
-      // Persist auto check-outs in background
+      // Persist auto check-outs in background (batched in chunks of 50)
       if (autoCheckoutIds.length > 0) {
-        supabase
-          .from("Bookings")
-          .update({ status: 'Checked-Out' })
-          .in('id', autoCheckoutIds)
-          .then();
+        (async () => {
+          for (let i = 0; i < autoCheckoutIds.length; i += 50) {
+            const chunk = autoCheckoutIds.slice(i, i + 50);
+            const { error: syncErr } = await supabase
+              .from("Bookings")
+              .update({ status: 'Checked-Out' })
+              .in('id', chunk);
+            if (syncErr) console.error("Auto checkout calendar sync error:", syncErr);
+          }
+        })();
       }
     } catch (err: any) {
       console.error("Error fetching calendar data:", err);

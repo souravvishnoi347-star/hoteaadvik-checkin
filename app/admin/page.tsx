@@ -38,15 +38,22 @@ import AdminSidebar from "@/components/AdminSidebar";
 
 const normalizeDateStr = (dateStr?: string | null): string => {
   if (!dateStr) return "";
-  const trimmed = dateStr.trim();
-  if (trimmed.length >= 10 && trimmed.charAt(4) === "-" && trimmed.charAt(7) === "-") {
-    return trimmed.slice(0, 10);
+  const trimmed = String(dateStr).trim();
+  // 1. Check YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = trimmed.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (ymdMatch) {
+    return `${ymdMatch[1]}-${String(ymdMatch[2]).padStart(2, "0")}-${String(ymdMatch[3]).padStart(2, "0")}`;
   }
-  const d = new Date(trimmed);
-  if (!isNaN(d.getTime())) {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
+  // 2. Check DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
+  if (dmyMatch) {
+    return `${dmyMatch[3]}-${String(dmyMatch[2]).padStart(2, "0")}-${String(dmyMatch[1]).padStart(2, "0")}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   }
   return trimmed;
@@ -179,13 +186,19 @@ function AdminDashboard() {
           ? relatedGuests[0].phone 
           : "";
 
-        let currentStatus = booking.status;
-        if (currentStatus === 'checked_in') {
-          const outDate = normalizeDateStr(booking.check_out_date);
-          if (outDate && (outDate < todayStr || (outDate === todayStr && isPastCheckoutTime))) {
-            currentStatus = 'Checked-Out';
-            autoCheckoutIds.push(booking.id);
-          }
+        let currentStatus = booking.status || 'checked_in';
+        const outDate = normalizeDateStr(booking.check_out_date);
+
+        // Auto Checkout:
+        // 1. ALL past entries where checkout date is before today (< todayStr):
+        //    (Catches any status: checked_in, null, empty, etc., as long as it's not already 'Checked-Out')
+        // 2. Today's entries where checkout time (11:00 AM) is passed and status is checked_in:
+        const isPastCheckoutDate = Boolean(outDate && outDate < todayStr);
+        const isTodayCheckoutExpired = Boolean(outDate && outDate === todayStr && isPastCheckoutTime && currentStatus === 'checked_in');
+
+        if (currentStatus !== 'Checked-Out' && (isPastCheckoutDate || isTodayCheckoutExpired)) {
+          currentStatus = 'Checked-Out';
+          autoCheckoutIds.push(booking.id);
         }
 
         return {
@@ -200,13 +213,18 @@ function AdminDashboard() {
 
       setData(merged);
 
-      // Persist auto check-outs to Supabase in background
+      // Persist auto check-outs to Supabase in background (batched in chunks of 50)
       if (autoCheckoutIds.length > 0) {
-        supabase
-          .from("Bookings")
-          .update({ status: 'Checked-Out' })
-          .in('id', autoCheckoutIds)
-          .then();
+        (async () => {
+          for (let i = 0; i < autoCheckoutIds.length; i += 50) {
+            const chunk = autoCheckoutIds.slice(i, i + 50);
+            const { error: syncErr } = await supabase
+              .from("Bookings")
+              .update({ status: 'Checked-Out' })
+              .in('id', chunk);
+            if (syncErr) console.error("Auto checkout batch update error:", syncErr);
+          }
+        })();
       }
 
       // Fetch today's expenses
@@ -311,6 +329,46 @@ function AdminDashboard() {
       fetchData();
     } catch (err: any) {
       alert("Failed to check out: " + err.message);
+      setIsLoading(false);
+    }
+  };
+
+  const handleCheckOutAllPast = async () => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const pastUnchecked = data.filter(b => {
+      const outDate = normalizeDateStr(b.check_out_date);
+      return b.status !== 'Checked-Out' && Boolean(outDate && outDate < todayStr);
+    });
+
+    if (pastUnchecked.length === 0) {
+      alert("✅ Sabhi past bookings already Checked-Out hain! Aaj se pehle ki koi pending entry nahi hai.");
+      return;
+    }
+
+    if (!window.confirm(`⚠️ Hotel Aadvik Inn:\n\n${pastUnchecked.length} past bookings jo aaj se pehle (${todayStr}) ki hain, kya aap un sabhi ko Checked-Out mark karna chahte hain?\n\n(Aaj ke active in-house guests check out nahi honge).`)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const ids = pastUnchecked.map(b => b.id);
+
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const { error } = await supabase
+          .from("Bookings")
+          .update({ status: 'Checked-Out' })
+          .in('id', chunk);
+
+        if (error) throw error;
+      }
+
+      alert(`🎉 Successfully ${ids.length} past bookings ko Checked-Out mark kar diya gaya hai! Rooms free ho gaye hain.`);
+      fetchData();
+    } catch (err: any) {
+      alert("Error checking out past bookings: " + err.message);
       setIsLoading(false);
     }
   };
@@ -516,6 +574,18 @@ function AdminDashboard() {
                 <p className="text-slate-500 mt-1 text-sm">Here's what's happening at {hotelSettings.hotelName} today.</p>
               </div>
               <div className="flex items-center gap-3">
+                <button
+                  onClick={handleCheckOutAllPast}
+                  disabled={isLoading}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer"
+                  title="Check Out All Past Bookings"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                  Check Out Past Entries
+                </button>
+
                 <button
                   onClick={handleRefresh}
                   disabled={isRefreshing}
