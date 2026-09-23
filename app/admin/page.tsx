@@ -236,6 +236,25 @@ function AdminDashboard() {
     }
   };
 
+  const handleConfirmBooking = async (booking: MergedBookingData) => {
+    if (!window.confirm(`Confirm check-in for Booking #${booking.id} (${booking.primary_guest_name})?\n\nThis will mark the guest as Checked-In and include their revenue in Total Revenue.`)) {
+      return;
+    }
+    try {
+      setIsLoading(true);
+      const { error } = await supabase
+        .from("Bookings")
+        .update({ status: 'checked_in' })
+        .eq('id', booking.id);
+      if (error) throw error;
+      alert("✅ Booking confirmed! Guest marked as Checked-In.");
+      fetchData();
+    } catch (err: any) {
+      alert("Failed to confirm booking: " + err.message);
+      setIsLoading(false);
+    }
+  };
+
   const openEditModal = (booking: MergedBookingData) => {
     setEditingBooking(booking);
     setEditCheckIn(booking.check_in_date);
@@ -451,80 +470,104 @@ function AdminDashboard() {
             </div>
 
             {/* Quick Stats Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              {/* Bookings card */}
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Bookings</p>
-                    <div className="w-8 h-8 bg-blue-50 text-[#3B82F6] rounded flex items-center justify-center">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-                    </div>
-                  </div>
-                  <div className="flex items-baseline gap-3">
-                    <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{filteredData.length}</h2>
-                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
-                      Active
-                    </span>
-                  </div>
-                </div>
-                <p className="text-slate-400 text-xs mt-6">
-                  {filteredData.filter(b => b.status !== 'Checked-Out').length} currently active
-                </p>
-              </div>
+            {(() => {
+              const confirmedBookings = filteredData.filter(b => b.status !== 'reserved');
+              const reservedBookings = filteredData.filter(b => b.status === 'reserved');
+              const confirmedRevenue = confirmedBookings.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0);
+              const pendingAdvanceTotal = reservedBookings.reduce((acc, curr) => {
+                let adv = Number((curr as any).advance_amount) || 0;
+                if (!adv && curr.payment_mode && curr.payment_mode.includes("Adv:")) {
+                  const match = curr.payment_mode.match(/Adv:\s*₹?(\d+)/i);
+                  if (match && match[1]) adv = parseFloat(match[1]);
+                }
+                return acc + adv;
+              }, 0);
 
-              {/* Guests card */}
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Guests</p>
-                    <div className="w-8 h-8 bg-emerald-50 text-emerald-500 rounded flex items-center justify-center">
-                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
-                    </div>
-                  </div>
-                  <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{filteredData.reduce((acc, curr) => acc + curr.total_guests, 0)}</h2>
-                </div>
-                <p className="text-slate-400 text-xs mt-6">
-                  Recorded across all entries
-                </p>
-              </div>
+              const inHouseCount = confirmedBookings.filter(b => b.status === 'checked_in').length;
+              const completedCount = confirmedBookings.filter(b => b.status === 'Checked-Out').length;
 
-              {/* Revenue card */}
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Gross Revenue</p>
-                    <div className="w-8 h-8 bg-[#C5A059]/10 text-[#C5A059] rounded flex items-center justify-center">
-                      <span className="font-bold text-sm">₹</span>
+              const cash = confirmedBookings.reduce((acc, curr) => curr.payment_mode === 'Credit' ? acc : acc + (Number(curr.agreed_price) || 0), 0);
+              const credit = confirmedRevenue - cash;
+              const cashPct = confirmedRevenue === 0 ? 0 : Math.round((cash / confirmedRevenue) * 100);
+              const creditPct = confirmedRevenue === 0 ? 0 : 100 - cashPct;
+
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  {/* Bookings card */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Bookings</p>
+                        <div className="w-8 h-8 bg-blue-50 text-[#3B82F6] rounded flex items-center justify-center">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        </div>
+                      </div>
+                      <div className="flex items-baseline gap-3">
+                        <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{confirmedBookings.length}</h2>
+                        <span className="text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                          Confirmed
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-slate-400 text-xs mt-6">
+                      {inHouseCount} In-House • {completedCount} Checked-Out
+                      {reservedBookings.length > 0 && (
+                        <span className="block text-amber-600 font-semibold mt-0.5">
+                          ⏳ {reservedBookings.length} advance reserved (pending check-in)
+                        </span>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* Guests card */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Total Guests</p>
+                        <div className="w-8 h-8 bg-emerald-50 text-emerald-500 rounded flex items-center justify-center">
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z"/></svg>
+                        </div>
+                      </div>
+                      <h2 className="text-5xl font-bold text-[#0F172A] tracking-tight">{confirmedBookings.reduce((acc, curr) => acc + curr.total_guests, 0)}</h2>
+                    </div>
+                    <p className="text-slate-400 text-xs mt-6">
+                      Recorded across confirmed entries
+                      {reservedBookings.length > 0 && ` (+${reservedBookings.reduce((acc, curr) => acc + curr.total_guests, 0)} advance guests)`}
+                    </p>
+                  </div>
+
+                  {/* Revenue card */}
+                  <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Gross Revenue</p>
+                        <div className="w-8 h-8 bg-[#C5A059]/10 text-[#C5A059] rounded flex items-center justify-center">
+                          <span className="font-bold text-sm">₹</span>
+                        </div>
+                      </div>
+                      <h2 className="text-4xl font-bold text-[#0F172A] tracking-tight">₹{confirmedRevenue.toLocaleString('en-IN')}</h2>
+                      {pendingAdvanceTotal > 0 && (
+                        <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1 font-semibold flex items-center gap-1.5">
+                          <span>⏳</span> ₹{pendingAdvanceTotal.toLocaleString('en-IN')} advance pending confirmation
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="mt-6">
+                      <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                        <div className="h-full bg-[#0F172A]" style={{ width: `${cashPct}%` }}></div>
+                        <div className="h-full bg-[#C5A059]" style={{ width: `${creditPct}%` }}></div>
+                      </div>
+                      <div className="flex justify-between mt-2 text-[10px] font-semibold text-slate-500 uppercase">
+                        <span>{cashPct}% Cash</span>
+                        <span>{creditPct}% Credit</span>
+                      </div>
                     </div>
                   </div>
-                  <h2 className="text-4xl font-bold text-[#0F172A] tracking-tight">₹{filteredData.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0).toLocaleString('en-IN')}</h2>
                 </div>
-                
-                <div className="mt-6">
-                  {(() => {
-                    const total = filteredData.reduce((acc, curr) => acc + (Number(curr.agreed_price) || 0), 0);
-                    const cash = filteredData.reduce((acc, curr) => curr.payment_mode === 'Credit' ? acc : acc + (Number(curr.agreed_price) || 0), 0);
-                    const credit = total - cash;
-                    const cashPct = total === 0 ? 0 : Math.round((cash / total) * 100);
-                    const creditPct = total === 0 ? 0 : 100 - cashPct;
-                    return (
-                      <>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden flex">
-                          <div className="h-full bg-[#0F172A]" style={{ width: `${cashPct}%` }}></div>
-                          <div className="h-full bg-[#C5A059]" style={{ width: `${creditPct}%` }}></div>
-                        </div>
-                        <div className="flex justify-between mt-2 text-[10px] font-semibold text-slate-500 uppercase">
-                          <span>{cashPct}% Cash</span>
-                          <span>{creditPct}% Credit</span>
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Secondary Stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -681,6 +724,11 @@ function AdminDashboard() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           {booking.status === 'Checked-Out' ? (
                             <span className="bg-gray-100 text-gray-600 py-1 px-3 rounded-full text-xs font-bold uppercase tracking-wider">Checked-Out</span>
+                          ) : booking.status === 'reserved' ? (
+                            <span className="bg-amber-100 text-amber-800 py-1 px-3 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 w-max">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              Reserved (Advance)
+                            </span>
                           ) : (
                             <span className="bg-green-100 text-green-700 py-1 px-3 rounded-full text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 w-max">
                               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
@@ -690,6 +738,18 @@ function AdminDashboard() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
                           <div className="flex items-center justify-center gap-2">
+                            {booking.status === 'reserved' && (
+                              <button
+                                onClick={() => handleConfirmBooking(booking)}
+                                className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-md text-xs font-bold shadow-sm transition-all"
+                                title="Confirm Booking & Check-In"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                Confirm Check-In
+                              </button>
+                            )}
                             <button
                               onClick={() => openGuestsModal(booking)}
                               className="inline-flex items-center gap-1.5 bg-white border border-gray-200 text-gray-700 hover:text-emerald-600 hover:border-emerald-200 px-3 py-1.5 rounded-md text-xs font-medium shadow-sm transition-all hover:shadow"

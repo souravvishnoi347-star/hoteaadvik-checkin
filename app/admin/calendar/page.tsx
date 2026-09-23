@@ -494,6 +494,31 @@ export default function CalendarPage() {
     }
   };
 
+  // Direct Confirm Booking (mark confirmed/checked-in)
+  const handleDirectConfirmBooking = async () => {
+    if (!selectedBooking) return;
+    if (!window.confirm(`Confirm check-in for Room ${selectedBooking.room_number} (${selectedBooking.primary_guest_name})?\n\nThis will confirm the booking and include its revenue in Total Revenue.`)) {
+      return;
+    }
+    try {
+      setIsProcessingCheckIn(true);
+      const { error } = await supabase
+        .from("Bookings")
+        .update({ status: "checked_in" })
+        .eq("id", selectedBooking.id);
+
+      if (error) throw error;
+
+      alert(`✅ Booking confirmed for ${selectedBooking.primary_guest_name}! Room ${selectedBooking.room_number} is now Checked-In.`);
+      setIsDetailModalOpen(false);
+      fetchCalendarData();
+    } catch (err: any) {
+      alert("Error confirming booking: " + err.message);
+    } finally {
+      setIsProcessingCheckIn(false);
+    }
+  };
+
   // Shift Room
   const handleShiftRoom = async () => {
     if (!selectedBooking) return;
@@ -986,30 +1011,41 @@ export default function CalendarPage() {
 
                 {/* PRIMARY ACTION: If Guest is in 'reserved' stage, show big Check-In button */}
                 {selectedBooking.status === "reserved" && (
-                  <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 flex flex-col gap-2 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs font-extrabold text-emerald-950">
-                          Guest has arrived at reception?
-                        </p>
-                        <p className="text-[11px] text-emerald-700 font-medium">
-                          Collect remaining balance (₹{selectedBooking.calculated_balance}) and complete check-in.
-                        </p>
-                      </div>
+                  <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-4 flex flex-col gap-2.5 shadow-xs">
+                    <div>
+                      <p className="text-xs font-extrabold text-emerald-950">
+                        Guest arrived or booking confirmed?
+                      </p>
+                      <p className="text-[11px] text-emerald-700 font-medium">
+                        Once checked-in/confirmed, this booking will be included in Total Revenue.
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCollectedBalanceAmount(selectedBooking.calculated_balance.toString());
-                        setIsCheckInActionOpen(true);
-                      }}
-                      className="w-full mt-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Collect Balance & Complete Check-In
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCollectedBalanceAmount(selectedBooking.calculated_balance.toString());
+                          setIsCheckInActionOpen(true);
+                        }}
+                        className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Collect ₹{selectedBooking.calculated_balance} & Check In
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isProcessingCheckIn}
+                        onClick={handleDirectConfirmBooking}
+                        className="w-full py-2.5 px-3 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Direct Confirm Check-In
+                      </button>
+                    </div>
                   </div>
                 )}
 
