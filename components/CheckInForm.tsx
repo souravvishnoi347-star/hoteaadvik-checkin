@@ -103,8 +103,8 @@ export default function CheckInForm() {
       setCameraError(null);
       setIsStreaming(false);
       try {
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          throw new Error("Camera API not supported on this browser/network. Make sure you are on HTTPS or localhost.");
+        if (typeof navigator === "undefined" || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error("Live webcam is not available on this browser or connection (HTTPS is required for in-browser webcam). Please use your phone's native camera option below.");
         }
 
         let stream: MediaStream;
@@ -112,13 +112,14 @@ export default function CheckInForm() {
           stream = await navigator.mediaDevices.getUserMedia({
             video: { 
               facingMode: { ideal: cameraFacing }, 
-              width: { ideal: 1920 }, 
-              height: { ideal: 1080 } 
-            }
+              width: { ideal: 1280 }, 
+              height: { ideal: 720 } 
+            },
+            audio: false
           });
         } catch {
           // Fallback if specific facingMode constraint fails (e.g. PC webcam)
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
 
         if (!active) {
@@ -131,19 +132,23 @@ export default function CheckInForm() {
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
-          videoRef.current.onloadedmetadata = () => {
-            videoRef.current?.play().then(() => {
-              if (active) setIsStreaming(true);
-            }).catch(e => console.log("Video play error:", e));
-          };
+          try {
+            await videoRef.current.play();
+            if (active) setIsStreaming(true);
+          } catch (e) {
+            console.log("Video play error:", e);
+            if (active) setIsStreaming(true);
+          }
+        } else {
+          if (active) setIsStreaming(true);
         }
       } catch (err: any) {
         console.error("Camera access error:", err);
         if (active) {
           setCameraError(
             err.name === "NotAllowedError" || err.name === "PermissionDeniedError"
-              ? "Camera permission was denied in your browser settings. Please allow camera access."
-              : "Unable to start live camera stream. You can use your phone's native camera directly below."
+              ? "Camera permission was denied in your browser settings. Please allow camera access or use the Phone Camera option below."
+              : (err.message || "Unable to start live camera stream. You can use your phone's native camera directly below.")
           );
         }
       }
@@ -196,16 +201,24 @@ export default function CheckInForm() {
   const capturePhoto = () => {
     if (!videoRef.current) return;
     const video = videoRef.current;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    ctx.drawImage(video, 0, 0, width, height);
     canvas.toBlob((blob) => {
       if (!blob) return;
-      const file = new File([blob], `id_${cameraModal.target}_${Date.now()}.jpg`, { type: 'image/jpeg' });
+      const fileName = `id_${cameraModal.target}_${Date.now()}.jpg`;
+      let file: File;
+      try {
+        file = new File([blob], fileName, { type: 'image/jpeg' });
+      } catch {
+        file = Object.assign(blob, { name: fileName, lastModified: Date.now() }) as File;
+      }
       if (cameraModal.target === 'front') {
         processIdFile(0, file);
       } else {
@@ -721,26 +734,47 @@ export default function CheckInForm() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex gap-2 w-full">
-                        <button
-                          type="button"
-                          onClick={() => openCamera('front')}
-                          className={`w-1/2 text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 cursor-pointer ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}
-                          title="Open Live Camera"
-                        >
-                          <span className="text-base">📷</span> Camera
-                        </button>
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleFileChange(0, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Upload from Gallery"
-                          />
-                          <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 shadow-sm' : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm'}`}>
-                            <span className="text-base">📁</span> Gallery
+                      <div className="flex flex-col gap-1.5 w-full">
+                        <div className="flex gap-2 w-full">
+                          {/* 1. Direct Camera Snap (100% Reliable Native Camera) */}
+                          <div className="relative w-1/2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={(e) => handleFileChange(0, e)}
+                              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                              title="Click photo using Camera"
+                            />
+                            <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-colors border flex items-center justify-center gap-1.5 shadow-xs ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700'}`}>
+                              <span className="text-base">📷</span> Camera
+                            </div>
                           </div>
+
+                          {/* 2. Choose from Gallery */}
+                          <div className="relative w-1/2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleFileChange(0, e)}
+                              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                              title="Upload from Gallery"
+                            />
+                            <div className={`w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1.5 shadow-xs ${idStatus[0] === 'invalid' ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}>
+                              <span className="text-base">📁</span> Gallery
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Optional Desktop Webcam Link */}
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => openCamera('front')}
+                            className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <span>📹</span> Laptop/Webcam Viewfinder
+                          </button>
                         </div>
                       </div>
                     )}
@@ -759,26 +793,47 @@ export default function CheckInForm() {
                         </div>
                       </div>
                     ) : (
-                      <div className="flex gap-2 w-full">
-                        <button
-                          type="button"
-                          onClick={() => openCamera('back')}
-                          className="w-1/2 text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm cursor-pointer"
-                          title="Open Live Camera"
-                        >
-                          <span className="text-base">📷</span> Camera
-                        </button>
-                        <div className="relative w-1/2">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => handleBackFileChange(0, e)}
-                            className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
-                            title="Upload from Gallery"
-                          />
-                          <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1 bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50 shadow-sm">
-                            <span className="text-base">📁</span> Gallery
+                      <div className="flex flex-col gap-1.5 w-full">
+                        <div className="flex gap-2 w-full">
+                          {/* 1. Direct Camera Snap (100% Reliable Native Camera) */}
+                          <div className="relative w-1/2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              onChange={(e) => handleBackFileChange(0, e)}
+                              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                              title="Click photo using Camera"
+                            />
+                            <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-colors border flex items-center justify-center gap-1.5 shadow-xs bg-indigo-600 hover:bg-indigo-700 text-white border-indigo-700">
+                              <span className="text-base">📷</span> Camera
+                            </div>
                           </div>
+
+                          {/* 2. Choose from Gallery */}
+                          <div className="relative w-1/2">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => handleBackFileChange(0, e)}
+                              className="absolute inset-0 w-full h-full opacity-0 z-10 cursor-pointer"
+                              title="Upload from Gallery"
+                            />
+                            <div className="w-full text-center px-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-colors border flex items-center justify-center gap-1.5 shadow-xs bg-white text-slate-700 border-slate-200 hover:bg-slate-50">
+                              <span className="text-base">📁</span> Gallery
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Optional Desktop Webcam Link */}
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => openCamera('back')}
+                            className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <span>📹</span> Laptop/Webcam Viewfinder
+                          </button>
                         </div>
                       </div>
                     )}
@@ -888,7 +943,13 @@ export default function CheckInForm() {
                 {/* Live Video Viewfinder */}
                 <div className="relative w-full aspect-[4/3] bg-black rounded-2xl overflow-hidden flex items-center justify-center border border-slate-800">
                   <video
-                    ref={videoRef}
+                    ref={(el) => {
+                      videoRef.current = el;
+                      if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                        el.srcObject = streamRef.current;
+                        el.play().then(() => setIsStreaming(true)).catch(() => setIsStreaming(true));
+                      }
+                    }}
                     autoPlay
                     playsInline
                     muted
