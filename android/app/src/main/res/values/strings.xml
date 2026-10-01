@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hotel Aadvik</string>
+    <string name="title_activity_main">Hotel Aadvik</string>
+    <string name="package_name">com.hotelaadvik.checkin</string>
+    <string name="custom_url_scheme">com.hotelaadvik.checkin</string>
+</resources>
