@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Hotel Aadvik',
   webDir: 'public',
   server: {
-    url: 'https://checkin.hotelaadvikinn.com',
+    url: 'https://checkin.hotelaadvikinn.com/admin',
     cleartext: true
   }
 };

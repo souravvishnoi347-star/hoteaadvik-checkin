@@ -123,7 +123,8 @@ export default function CalendarPage() {
 
   // Quick Reservation / Advance Booking Modal State
   const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
-  const [newRoomNumber, setNewRoomNumber] = useState("201");
+  const [newSelectedRooms, setNewSelectedRooms] = useState<string[]>(["201"]);
+  const [ratePerRoom, setRatePerRoom] = useState("1500");
   const [newCheckIn, setNewCheckIn] = useState("");
   const [newCheckOut, setNewCheckOut] = useState("");
   const [newGuestName, setNewGuestName] = useState("");
@@ -393,9 +394,51 @@ export default function CalendarPage() {
 
   const roomsAvailableToday = ROOMS.length - (roomsOccupiedToday + roomsReservedToday);
 
+  // Check if a room is booked/occupied during a date range
+  const isRoomBookedOnDates = (roomNum: string, startStr: string, endStr: string) => {
+    if (!startStr || !endStr) return false;
+    const startNorm = normalizeDateStr(startStr);
+    const endNorm = normalizeDateStr(endStr);
+    return bookings.some(b => {
+      if (!b.room_number) return false;
+      if (b.status === "Checked-Out" || b.status === "checked_out") return false;
+      const cleanRoom = b.room_number.toString().trim();
+      if (cleanRoom !== roomNum) return false;
+      const bIn = normalizeDateStr(b.check_in_date);
+      const bOut = normalizeDateStr(b.check_out_date);
+      if (!bIn || !bOut) return false;
+      if (bIn === bOut) {
+        return startNorm <= bIn && endNorm > bIn;
+      }
+      return startNorm < bOut && endNorm > bIn;
+    });
+  };
+
+  // Toggle room selection for advance booking modal
+  const toggleRoomSelection = (roomNum: string) => {
+    setNewSelectedRooms(prev => {
+      const exists = prev.includes(roomNum);
+      let updated: string[];
+      if (exists) {
+        if (prev.length === 1) {
+          updated = [];
+        } else {
+          updated = prev.filter(r => r !== roomNum);
+        }
+      } else {
+        updated = [...prev, roomNum].sort();
+      }
+      const count = updated.length || 1;
+      const rRate = parseFloat(ratePerRoom) || 1500;
+      setNewAgreedPrice((rRate * count).toString());
+      return updated;
+    });
+  };
+
   // Quick Open Modal
   const handleOpenNewReservation = (roomNum: string, dateStr?: string) => {
-    setNewRoomNumber(roomNum);
+    setNewSelectedRooms([roomNum]);
+    setRatePerRoom("1500");
     const startDate = dateStr || todayStr;
     setNewCheckIn(startDate);
     
@@ -415,7 +458,7 @@ export default function CalendarPage() {
     setIsNewBookingModalOpen(true);
   };
 
-  // Create Reservation with Advance Payment
+  // Create Reservation with Advance Payment (Supports Single & Multiple Rooms)
   const handleCreateReservation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGuestName.trim()) {
@@ -426,63 +469,106 @@ export default function CalendarPage() {
       alert("Please select check-in and check-out dates.");
       return;
     }
+    if (newSelectedRooms.length === 0) {
+      alert("Please select at least one room.");
+      return;
+    }
 
-    const agreed = parseFloat(newAgreedPrice) || 0;
-    const advance = parseFloat(newAdvancePaid) || 0;
-    const balance = Math.max(0, agreed - advance);
+    // Overlap alert if any selected room is already booked on these dates
+    const occupiedSelected = newSelectedRooms.filter(r => isRoomBookedOnDates(r, newCheckIn, newCheckOut));
+    if (occupiedSelected.length > 0) {
+      const confirmOverlap = window.confirm(
+        `⚠️ Warning: Room(s) ${occupiedSelected.join(", ")} already appear to be booked during ${newCheckIn} to ${newCheckOut}.\n\nDo you still wish to proceed and confirm this booking?`
+      );
+      if (!confirmOverlap) return;
+    }
+
+    const totalAgreed = parseFloat(newAgreedPrice) || 0;
+    const totalAdvance = parseFloat(newAdvancePaid) || 0;
+    const totalBalance = Math.max(0, totalAgreed - totalAdvance);
+    const numRooms = newSelectedRooms.length;
 
     try {
       setIsSavingBooking(true);
 
-      const paymentString = `${newAdvanceMode} (Adv: ₹${advance} | Bal: ₹${balance})`;
+      const baseAdvPerRoom = Math.floor(totalAdvance / numRooms);
+      const remAdv = totalAdvance - (baseAdvPerRoom * numRooms);
 
-      // 1. Try inserting with advance_amount and balance_amount
-      let bData: any = null;
-      let bError: any = null;
+      const baseAgreedPerRoom = Math.floor(totalAgreed / numRooms);
+      const remAgreed = totalAgreed - (baseAgreedPerRoom * numRooms);
 
-      const payloadWithCols = {
-        check_in_date: newCheckIn,
-        check_out_date: newCheckOut,
-        agreed_price: agreed,
-        advance_amount: advance,
-        balance_amount: balance,
-        payment_mode: paymentString,
-        room_number: newRoomNumber,
-        status: newBookingType
-      };
+      const groupTag = numRooms > 1 
+        ? ` [Group Booking: ${numRooms} Rooms (${newSelectedRooms.join(", ")}) | Total Adv: ₹${totalAdvance} | Total Due: ₹${totalBalance}]` 
+        : "";
 
-      const res = await supabase.from("Bookings").insert(payloadWithCols).select().single();
-      
-      if (res.error) {
-        // Fallback without advance_amount column if schema not yet updated
-        const fallbackPayload = {
+      for (let i = 0; i < numRooms; i++) {
+        const roomNum = newSelectedRooms[i];
+        const roomAgreed = baseAgreedPerRoom + (i === 0 ? remAgreed : 0);
+        const roomAdvance = baseAdvPerRoom + (i === 0 ? remAdv : 0);
+        const roomBalance = Math.max(0, roomAgreed - roomAdvance);
+        const paymentString = `${newAdvanceMode} (Adv: ₹${roomAdvance} | Bal: ₹${roomBalance})${groupTag}`;
+
+        // 1. Try inserting with advance_amount and balance_amount
+        let bData: any = null;
+
+        const payloadWithCols = {
           check_in_date: newCheckIn,
           check_out_date: newCheckOut,
-          agreed_price: agreed,
+          agreed_price: roomAgreed,
+          advance_amount: roomAdvance,
+          balance_amount: roomBalance,
           payment_mode: paymentString,
-          room_number: newRoomNumber,
+          room_number: roomNum,
           status: newBookingType
         };
-        const fallbackRes = await supabase.from("Bookings").insert(fallbackPayload).select().single();
-        if (fallbackRes.error) throw fallbackRes.error;
-        bData = fallbackRes.data;
-      } else {
-        bData = res.data;
+
+        const res = await supabase.from("Bookings").insert(payloadWithCols).select().single();
+        
+        if (res.error) {
+          // Fallback without advance_amount column if schema not yet updated
+          const fallbackPayload = {
+            check_in_date: newCheckIn,
+            check_out_date: newCheckOut,
+            agreed_price: roomAgreed,
+            payment_mode: paymentString,
+            room_number: roomNum,
+            status: newBookingType
+          };
+          const fallbackRes = await supabase.from("Bookings").insert(fallbackPayload).select().single();
+          if (fallbackRes.error) throw fallbackRes.error;
+          bData = fallbackRes.data;
+        } else {
+          bData = res.data;
+        }
+
+        // 2. Insert primary guest
+        const { error: gError } = await supabase
+          .from("Guests")
+          .insert({
+            booking_id: bData.id,
+            name: newGuestName.trim(),
+            age: parseInt(newGuestAge) || 28,
+            phone: newGuestPhone.trim()
+          });
+
+        if (gError) throw gError;
       }
 
-      // 2. Insert primary guest
-      const { error: gError } = await supabase
-        .from("Guests")
-        .insert({
-          booking_id: bData.id,
-          name: newGuestName.trim(),
-          age: parseInt(newGuestAge) || 28,
-          phone: newGuestPhone.trim()
-        });
+      if (numRooms > 1) {
+        alert(
+          `✅ Successfully booked ${numRooms} rooms (${newSelectedRooms.join(", ")}) for ${newGuestName}!\n` +
+          `Total Tariff: ₹${totalAgreed}\n` +
+          `Total Advance Received: ₹${totalAdvance}\n` +
+          `Total Balance Due on Arrival: ₹${totalBalance}`
+        );
+      } else {
+        alert(
+          `✅ Room ${newSelectedRooms[0]} successfully booked for ${newGuestName}!\n` +
+          `Advance Received: ₹${totalAdvance}\n` +
+          `Balance Due on Arrival: ₹${totalBalance}`
+        );
+      }
 
-      if (gError) throw gError;
-
-      alert(`✅ Room ${newRoomNumber} successfully booked for ${newGuestName}!\nAdvance Received: ₹${advance}\nBalance Due on Arrival: ₹${balance}`);
       setIsNewBookingModalOpen(false);
       fetchCalendarData();
     } catch (err: any) {
@@ -639,7 +725,22 @@ export default function CalendarPage() {
     }
     const phoneWithCode = cleanPhone.startsWith("91") ? cleanPhone : `91${cleanPhone}`;
 
-    const msg = `Namaste ${booking.primary_guest_name}! 🙏\n\nYour booking at *${hotelSettings.hotelName}* is confirmed.\n\n🏨 *Room:* ${booking.room_number}\n📅 *Check-In:* ${booking.check_in_date}\n📅 *Check-Out:* ${booking.check_out_date}\n💰 *Total Tariff:* ₹${booking.agreed_price || 0}\n💳 *Advance Received:* ₹${booking.calculated_advance}\n💵 *Balance on Arrival:* ₹${booking.calculated_balance}\n\n📍 *Address:* ${hotelSettings.hotelAddress}\n📞 *Contact:* ${hotelSettings.contact}\n\nWe look forward to welcoming you to Haridwar!`;
+    let roomDisplay = `Room ${booking.room_number}`;
+    let totalTariffDisplay = booking.agreed_price || 0;
+    let totalAdvDisplay = booking.calculated_advance;
+    let totalBalDisplay = booking.calculated_balance;
+
+    if (booking.payment_mode && booking.payment_mode.includes("Group Booking:")) {
+      const match = booking.payment_mode.match(/Group Booking:\s*(\d+\s*Rooms\s*\([^)]+\))\s*\|\s*Total Adv:\s*₹?(\d+)\s*\|\s*Total Due:\s*₹?(\d+)/i);
+      if (match) {
+        roomDisplay = match[1];
+        totalAdvDisplay = Number(match[2]) || totalAdvDisplay;
+        totalBalDisplay = Number(match[3]) || totalBalDisplay;
+        totalTariffDisplay = totalAdvDisplay + totalBalDisplay;
+      }
+    }
+
+    const msg = `Namaste ${booking.primary_guest_name}! 🙏\n\nYour booking at *${hotelSettings.hotelName}* is confirmed.\n\n🏨 *Room(s):* ${roomDisplay}\n📅 *Check-In:* ${booking.check_in_date}\n📅 *Check-Out:* ${booking.check_out_date}\n💰 *Total Tariff:* ₹${totalTariffDisplay}\n💳 *Total Advance Received:* ₹${totalAdvDisplay}\n💵 *Balance on Arrival:* ₹${totalBalDisplay}\n\n📍 *Address:* ${hotelSettings.hotelAddress}\n📞 *Contact:* ${hotelSettings.contact}\n\nWe look forward to welcoming you to Haridwar!`;
 
     const whatsappUrl = `https://wa.me/${phoneWithCode}?text=${encodeURIComponent(msg)}`;
     window.open(whatsappUrl, "_blank");
@@ -1046,6 +1147,21 @@ export default function CalendarPage() {
               {/* Modal Body */}
               <div className="p-6 space-y-4">
                 
+                {/* Multi-Room Group Booking Banner */}
+                {selectedBooking.payment_mode && selectedBooking.payment_mode.includes("Group Booking:") && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2.5 shadow-2xs">
+                    <span className="text-lg">👥</span>
+                    <div className="flex-1">
+                      <p className="text-xs font-black text-amber-950 uppercase tracking-wide">
+                        Multi-Room / Group Reservation
+                      </p>
+                      <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                        {selectedBooking.payment_mode.split("[Group Booking:")[1]?.replace("]", "").trim()}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* ADVANCE PAYMENT & BALANCE STATUS CARD */}
                 <div className="bg-gradient-to-r from-slate-50 to-amber-50/40 border border-slate-200 rounded-xl p-4 shadow-2xs">
                   <div className="grid grid-cols-3 gap-2 text-center">
@@ -1374,16 +1490,23 @@ export default function CalendarPage() {
               if (e.target === e.currentTarget) setIsNewBookingModalOpen(false);
             }}
           >
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
               
               {/* Header */}
-              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800">
+              <div className="bg-slate-900 text-white px-6 py-4 flex items-center justify-between border-b border-slate-800 shrink-0">
                 <div>
-                  <h3 className="text-base font-bold flex items-center gap-2 text-[#C5A059]">
-                    <span>📞</span> New Phone Booking / Reservation
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold flex items-center gap-1.5 text-[#C5A059]">
+                      <span>📞</span> New Reservation / Advance Booking
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      {newSelectedRooms.length === 1
+                        ? "1 Room"
+                        : `${newSelectedRooms.length} Rooms (Multi-Room)`}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Record Advance Payment & Lock Room on Calendar
+                    Select one or multiple rooms, record advance, and lock dates on the calendar
                   </p>
                 </div>
                 <button
@@ -1397,8 +1520,8 @@ export default function CalendarPage() {
               </div>
 
               {/* Form */}
-              <form onSubmit={handleCreateReservation}>
-                <div className="p-6 space-y-4">
+              <form onSubmit={handleCreateReservation} className="flex flex-col flex-1 overflow-hidden">
+                <div className="p-6 space-y-4 overflow-y-auto flex-1">
                   
                   {/* Booking Stage Toggle */}
                   <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
@@ -1424,24 +1547,6 @@ export default function CalendarPage() {
                     >
                       <span>✓ Direct Check-In (Guest Present)</span>
                     </button>
-                  </div>
-
-                  {/* Room Selection */}
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Select Room *
-                    </label>
-                    <select
-                      value={newRoomNumber}
-                      onChange={(e) => setNewRoomNumber(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold bg-white text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                    >
-                      {ROOMS.map((r) => (
-                        <option key={r.number} value={r.number}>
-                          Room {r.number} - {r.type} ({r.bedType})
-                        </option>
-                      ))}
-                    </select>
                   </div>
 
                   {/* Stay Dates */}
@@ -1470,6 +1575,99 @@ export default function CalendarPage() {
                         className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
                       />
                     </div>
+                  </div>
+
+                  {/* Multi-Room Selection */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Select Rooms * ({newSelectedRooms.length} Selected)
+                        </label>
+                        <p className="text-[11px] text-slate-500">
+                          Click any room to add or remove it from this booking
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const avail = ROOMS.filter(r => !isRoomBookedOnDates(r.number, newCheckIn, newCheckOut)).map(r => r.number);
+                            const selected = avail.length > 0 ? avail : ROOMS.map(r => r.number);
+                            setNewSelectedRooms(selected);
+                            const rRate = parseFloat(ratePerRoom) || 1500;
+                            setNewAgreedPrice((rRate * selected.length).toString());
+                          }}
+                          className="px-2 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold transition-colors cursor-pointer"
+                        >
+                          Select All Free
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewSelectedRooms([])}
+                          className="px-2 py-0.5 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium transition-colors cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {ROOMS.map((r) => {
+                        const isSelected = newSelectedRooms.includes(r.number);
+                        const isBooked = isRoomBookedOnDates(r.number, newCheckIn, newCheckOut);
+
+                        return (
+                          <button
+                            key={r.number}
+                            type="button"
+                            onClick={() => toggleRoomSelection(r.number)}
+                            className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer relative flex flex-col justify-between ${
+                              isSelected
+                                ? "bg-amber-600 text-white border-amber-700 shadow-xs ring-2 ring-amber-400"
+                                : isBooked
+                                ? "bg-rose-50/70 text-slate-700 border-rose-200 hover:border-rose-300"
+                                : "bg-white text-slate-800 border-slate-200 hover:border-amber-400 hover:bg-amber-50/40"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className={`text-xs font-black ${isSelected ? "text-white" : "text-slate-900"}`}>
+                                Room {r.number}
+                              </span>
+                              {isSelected ? (
+                                <span className="w-4 h-4 rounded-full bg-white text-amber-700 flex items-center justify-center text-[10px] font-black">
+                                  ✓
+                                </span>
+                              ) : isBooked ? (
+                                <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-200 text-rose-800">
+                                  Booked
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1">
+                              <p className={`text-[10px] font-medium truncate ${isSelected ? "text-amber-100" : "text-slate-600"}`}>
+                                {r.type}
+                              </p>
+                              <p className={`text-[9px] ${isSelected ? "text-amber-200" : "text-slate-400"}`}>
+                                {r.bedType}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {newSelectedRooms.length === 0 ? (
+                      <p className="text-[11px] text-rose-600 font-bold flex items-center gap-1">
+                        <span>⚠️</span> Please select at least one room to proceed.
+                      </p>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-900 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                        <span className="font-bold">Selected Rooms:</span>
+                        <span className="font-extrabold">{newSelectedRooms.map(r => `Room ${r}`).join(", ")}</span>
+                        <span className="text-[11px] text-slate-500">({newSelectedRooms.length} room{newSelectedRooms.length > 1 ? "s" : ""})</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Guest Name & Phone */}
@@ -1504,26 +1702,64 @@ export default function CalendarPage() {
 
                   {/* Tariff & Advance Payment Breakdown */}
                   <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-3">
-                    <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                      Payment & Advance Calculation
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <span>💰</span> Payment & Advance Calculation
+                      </p>
+                      {newSelectedRooms.length > 1 && (
+                        <span className="text-[10px] font-extrabold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full border border-amber-200">
+                          Group Tariff ({newSelectedRooms.length} Rooms)
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Rate per room helper for multi-room bookings */}
+                    {newSelectedRooms.length > 1 && (
+                      <div className="bg-white rounded-lg p-2.5 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <label className="text-[11px] font-bold text-slate-600">
+                            Rate Per Room (₹):
+                          </label>
+                          <input
+                            type="number"
+                            value={ratePerRoom}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRatePerRoom(val);
+                              const num = parseFloat(val) || 0;
+                              setNewAgreedPrice((num * newSelectedRooms.length).toString());
+                            }}
+                            className="w-24 px-2 py-1 border border-slate-300 rounded-md text-xs font-bold text-slate-900 focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                            placeholder="1500"
+                          />
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-medium">
+                          {newSelectedRooms.length} Rooms × ₹{parseFloat(ratePerRoom) || 0} = <strong className="text-slate-800">₹{(parseFloat(ratePerRoom) || 0) * newSelectedRooms.length}</strong>
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-3 gap-2">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                          Total Price (₹) *
+                          {newSelectedRooms.length > 1 ? "Total Tariff (₹) *" : "Total Price (₹) *"}
                         </label>
                         <input
                           type="number"
                           required
                           value={newAgreedPrice}
-                          onChange={(e) => setNewAgreedPrice(e.target.value)}
+                          onChange={(e) => {
+                            setNewAgreedPrice(e.target.value);
+                            if (newSelectedRooms.length > 0) {
+                              setRatePerRoom((Math.round((parseFloat(e.target.value) || 0) / newSelectedRooms.length)).toString());
+                            }
+                          }}
                           className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900"
                         />
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-emerald-600 mb-1">
-                          Advance Paid (₹)
+                          {newSelectedRooms.length > 1 ? "Total Advance (₹)" : "Advance Paid (₹)"}
                         </label>
                         <input
                           type="number"
@@ -1531,6 +1767,11 @@ export default function CalendarPage() {
                           onChange={(e) => setNewAdvancePaid(e.target.value)}
                           className="w-full px-2.5 py-1.5 border border-emerald-300 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50/50"
                         />
+                        {newSelectedRooms.length > 1 && (parseFloat(newAdvancePaid) || 0) > 0 && (
+                          <p className="text-[9px] text-emerald-700 mt-0.5">
+                            ~₹{Math.round((parseFloat(newAdvancePaid) || 0) / newSelectedRooms.length)}/room
+                          </p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-rose-500 mb-1">
@@ -1561,21 +1802,32 @@ export default function CalendarPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="bg-slate-50 border-t border-slate-200 px-6 py-3.5 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsNewBookingModalOpen(false)}
-                    className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSavingBooking}
-                    className="px-5 py-2 bg-[#0F172A] hover:bg-slate-800 text-[#C5A059] font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-                  >
-                    {isSavingBooking ? "Saving..." : "Confirm & Save Booking"}
-                  </button>
+                <div className="bg-slate-50 border-t border-slate-200 px-6 py-3.5 flex items-center justify-between shrink-0">
+                  <div className="text-xs text-slate-500">
+                    {newSelectedRooms.length > 1 && (
+                      <span>Reserving <strong>{newSelectedRooms.length} rooms</strong> simultaneously</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsNewBookingModalOpen(false)}
+                      className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 font-bold text-xs rounded-xl transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSavingBooking || newSelectedRooms.length === 0}
+                      className="px-5 py-2 bg-[#0F172A] hover:bg-slate-800 text-[#C5A059] font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                    >
+                      {isSavingBooking
+                        ? "Saving..."
+                        : newSelectedRooms.length > 1
+                        ? `Confirm & Book ${newSelectedRooms.length} Rooms`
+                        : "Confirm & Save Booking"}
+                    </button>
+                  </div>
                 </div>
               </form>
             </div>
