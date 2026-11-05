@@ -147,6 +147,12 @@ export default function CalendarPage() {
   const [targetShiftRoom, setTargetShiftRoom] = useState("202");
   const [isProcessingShift, setIsProcessingShift] = useState(false);
 
+  // Edit Guest Info in Detail Modal State
+  const [isEditingGuest, setIsEditingGuest] = useState(false);
+  const [editGuestNameInput, setEditGuestNameInput] = useState("");
+  const [editGuestPhoneInput, setEditGuestPhoneInput] = useState("");
+  const [isSavingGuestEdit, setIsSavingGuestEdit] = useState(false);
+
   const todayRowRef = useRef<HTMLTableRowElement>(null);
 
   // Normalize date string to YYYY-MM-DD
@@ -199,19 +205,37 @@ export default function CalendarPage() {
   const fetchCalendarData = async () => {
     try {
       setIsLoading(true);
-      const { data: bookingsData, error: bError } = await supabase
+
+      // Attempt JOIN query first to bypass separate table limit
+      let bookingsData: any[] = [];
+      let guestsData: any[] = [];
+
+      const { data: bJoinData, error: bJoinErr } = await supabase
         .from("Bookings")
-        .select("*")
+        .select("*, Guests(*)")
         .order("created_at", { ascending: false });
 
-      if (bError) throw bError;
+      if (!bJoinErr && bJoinData) {
+        bookingsData = bJoinData;
+        guestsData = bJoinData.flatMap((b: any) => b.Guests || b.guests || []);
+      } else {
+        // Fallback to separate queries if join is not permitted
+        const { data: bData, error: bError } = await supabase
+          .from("Bookings")
+          .select("*")
+          .order("created_at", { ascending: false });
 
-      const { data: guestsData, error: gError } = await supabase
-        .from("Guests")
-        .select("*")
-        .order("id", { ascending: true });
+        if (bError) throw bError;
+        bookingsData = bData || [];
 
-      if (gError) throw gError;
+        const { data: gData } = await supabase
+          .from("Guests")
+          .select("*")
+          .order("id", { ascending: false })
+          .limit(5000);
+
+        guestsData = gData || [];
+      }
 
       const now = new Date();
       const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -219,7 +243,11 @@ export default function CalendarPage() {
       const autoCheckoutIds: number[] = [];
 
       const merged: MergedBooking[] = (bookingsData || []).map((b: any) => {
-        const related = (guestsData || []).filter((g: Guest) => g.booking_id === b.id);
+        // Related guests: check embedded Guests first, then match by booking_id (supporting both string and number)
+        const embeddedGuests = b.Guests || b.guests || [];
+        const related = embeddedGuests.length > 0 
+          ? embeddedGuests 
+          : (guestsData || []).filter((g: Guest) => String(g.booking_id) === String(b.id));
         
         let currentStatus = b.status || 'checked_in';
         const outDate = normalizeDateStr(b.check_out_date);
@@ -250,12 +278,28 @@ export default function CalendarPage() {
           bal = Math.max(0, totalTariff - adv);
         }
 
+        // Primary Guest Name & Phone resolution with multi-level fallbacks
+        let pName = related.length > 0 && related[0].name ? related[0].name.trim() : "";
+        let pPhone = related.length > 0 && related[0].phone ? related[0].phone.trim() : "";
+
+        // Fallback: Parse guest name & phone from payment_mode metadata e.g. "[Guest: sourav testing | Phone: 8797978698]" or "Guest: sourav testing"
+        if ((!pName || pName.toLowerCase() === "guest") && b.payment_mode) {
+          const metaMatch = b.payment_mode.match(/\[Guest:\s*([^|\]]+)(?:\|\s*Phone:\s*([^\]]+))?\]/i)
+            || b.payment_mode.match(/Guest:\s*([^|,\]]+)/i);
+          if (metaMatch && metaMatch[1]) {
+            pName = metaMatch[1].trim();
+            if (metaMatch[2] && !pPhone) pPhone = metaMatch[2].trim();
+          }
+        }
+
+        if (!pName) pName = "Guest";
+
         return {
           ...b,
           status: currentStatus,
-          primary_guest_name: related.length > 0 ? related[0].name : "Guest",
-          primary_guest_phone: related.length > 0 ? (related[0].phone || "") : "",
-          total_guests: related.length,
+          primary_guest_name: pName,
+          primary_guest_phone: pPhone,
+          total_guests: related.length || (pName !== "Guest" ? 1 : 0),
           guests: related,
           calculated_advance: adv,
           calculated_balance: bal
@@ -506,7 +550,10 @@ export default function CalendarPage() {
         const roomAgreed = baseAgreedPerRoom + (i === 0 ? remAgreed : 0);
         const roomAdvance = baseAdvPerRoom + (i === 0 ? remAdv : 0);
         const roomBalance = Math.max(0, roomAgreed - roomAdvance);
-        const paymentString = `${newAdvanceMode} (Adv: ₹${roomAdvance} | Bal: ₹${roomBalance})${groupTag}`;
+        
+        // Permanent fallback: Embed guest name and phone in payment_mode metadata
+        const guestTag = `[Guest: ${newGuestName.trim()}${newGuestPhone.trim() ? ` | Phone: ${newGuestPhone.trim()}` : ""}]`;
+        const paymentString = `${guestTag} ${newAdvanceMode} (Adv: ₹${roomAdvance} | Bal: ₹${roomBalance})${groupTag}`;
 
         // 1. Try inserting with advance_amount and balance_amount
         let bData: any = null;
@@ -541,17 +588,32 @@ export default function CalendarPage() {
           bData = res.data;
         }
 
-        // 2. Insert primary guest
-        const { error: gError } = await supabase
-          .from("Guests")
-          .insert({
-            booking_id: bData.id,
+        const bId = Number(bData?.id);
+
+        // 2. Insert primary guest with full resilience
+        if (bId) {
+          const guestPayload = {
+            booking_id: bId,
             name: newGuestName.trim(),
             age: parseInt(newGuestAge) || 28,
-            phone: newGuestPhone.trim()
-          });
+            phone: newGuestPhone.trim() || null,
+            id_image_url: null,
+            id_image_back_url: null
+          };
 
-        if (gError) throw gError;
+          const { error: gError } = await supabase.from("Guests").insert(guestPayload);
+          if (gError) {
+            console.warn("Guests insert with full payload failed, trying minimal payload:", gError);
+            const { error: gMinimalErr } = await supabase.from("Guests").insert({
+              booking_id: bId,
+              name: newGuestName.trim(),
+              age: parseInt(newGuestAge) || 28
+            });
+            if (gMinimalErr) {
+              console.error("Minimal Guests insert also failed:", gMinimalErr);
+            }
+          }
+        }
       }
 
       if (numRooms > 1) {
@@ -691,6 +753,70 @@ export default function CalendarPage() {
       alert("Failed to shift room: " + err.message);
     } finally {
       setIsProcessingShift(false);
+    }
+  };
+
+  // Save/Update Guest Details directly from Detail Modal
+  const handleSaveGuestDetails = async () => {
+    if (!selectedBooking || !editGuestNameInput.trim()) return;
+    try {
+      setIsSavingGuestEdit(true);
+      const trimmedName = editGuestNameInput.trim();
+      const trimmedPhone = editGuestPhoneInput.trim();
+      const bId = Number(selectedBooking.id);
+
+      // 1. Check if guest record exists in Guests table
+      const { data: existingGuests } = await supabase
+        .from("Guests")
+        .select("id")
+        .eq("booking_id", bId)
+        .limit(1);
+
+      if (existingGuests && existingGuests.length > 0) {
+        await supabase
+          .from("Guests")
+          .update({ name: trimmedName, phone: trimmedPhone || null })
+          .eq("id", existingGuests[0].id);
+      } else {
+        await supabase
+          .from("Guests")
+          .insert({
+            booking_id: bId,
+            name: trimmedName,
+            age: 28,
+            phone: trimmedPhone || null
+          });
+      }
+
+      // 2. Also update payment_mode note on Bookings table as permanent backup
+      let updatedPayment = selectedBooking.payment_mode || "";
+      const guestTag = `[Guest: ${trimmedName}${trimmedPhone ? ` | Phone: ${trimmedPhone}` : ""}]`;
+      if (updatedPayment.includes("[Guest:")) {
+        updatedPayment = updatedPayment.replace(/\[Guest:[^\]]+\]/i, guestTag);
+      } else {
+        updatedPayment = `${guestTag} ${updatedPayment}`.trim();
+      }
+
+      await supabase
+        .from("Bookings")
+        .update({ payment_mode: updatedPayment })
+        .eq("id", bId);
+
+      // Update state locally
+      setSelectedBooking(prev => prev ? {
+        ...prev,
+        primary_guest_name: trimmedName,
+        primary_guest_phone: trimmedPhone,
+        payment_mode: updatedPayment
+      } : null);
+
+      setIsEditingGuest(false);
+      fetchCalendarData();
+      alert(`✅ Guest details updated to: ${trimmedName}`);
+    } catch (err: any) {
+      alert("Failed to update guest name: " + err.message);
+    } finally {
+      setIsSavingGuestEdit(false);
     }
   };
 
@@ -1114,7 +1240,10 @@ export default function CalendarPage() {
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto"
             onClick={(e) => {
-              if (e.target === e.currentTarget) setIsDetailModalOpen(false);
+              if (e.target === e.currentTarget) {
+                setIsDetailModalOpen(false);
+                setIsEditingGuest(false);
+              }
             }}
           >
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
@@ -1135,7 +1264,10 @@ export default function CalendarPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => setIsDetailModalOpen(false)}
+                  onClick={() => {
+                    setIsDetailModalOpen(false);
+                    setIsEditingGuest(false);
+                  }}
                   className="text-slate-300 hover:text-white p-1 rounded-lg hover:bg-black/20 transition-colors cursor-pointer"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1269,28 +1401,89 @@ export default function CalendarPage() {
 
                 {/* Primary Guest Details */}
                 <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Guest Name:</span>
-                    <span className="font-bold text-slate-900">{selectedBooking.primary_guest_name}</span>
+                  <div className="flex justify-between items-center pb-1 border-b border-slate-100">
+                    <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">Guest Information</span>
+                    {!isEditingGuest && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditGuestNameInput(selectedBooking.primary_guest_name === "Guest" ? "" : selectedBooking.primary_guest_name);
+                          setEditGuestPhoneInput(selectedBooking.primary_guest_phone || "");
+                          setIsEditingGuest(true);
+                        }}
+                        className="text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-0.5 rounded-md border border-amber-200 cursor-pointer transition-colors"
+                      >
+                        ✏️ Edit Name
+                      </button>
+                    )}
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Phone Number:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-900">{selectedBooking.primary_guest_phone || "Not provided"}</span>
-                      {selectedBooking.primary_guest_phone && (
-                        <a
-                          href={`tel:${selectedBooking.primary_guest_phone}`}
-                          className="text-blue-600 hover:underline text-[11px] font-semibold"
+
+                  {isEditingGuest ? (
+                    <div className="space-y-2.5 pt-1">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Guest Full Name *</label>
+                        <input
+                          type="text"
+                          value={editGuestNameInput}
+                          onChange={(e) => setEditGuestNameInput(e.target.value)}
+                          placeholder="e.g. Sourav testing"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Phone Number</label>
+                        <input
+                          type="tel"
+                          value={editGuestPhoneInput}
+                          onChange={(e) => setEditGuestPhoneInput(e.target.value)}
+                          placeholder="e.g. 9876543210"
+                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-900 focus:ring-2 focus:ring-amber-500 outline-none"
+                        />
+                      </div>
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingGuest(false)}
+                          className="px-3 py-1 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-md text-[11px] font-bold cursor-pointer"
                         >
-                          Call
-                        </a>
-                      )}
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isSavingGuestEdit || !editGuestNameInput.trim()}
+                          onClick={handleSaveGuestDetails}
+                          className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-md text-[11px] font-bold cursor-pointer disabled:opacity-50"
+                        >
+                          {isSavingGuestEdit ? "Saving..." : "Save Name"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Total Guests:</span>
-                    <span className="font-bold text-slate-900">{selectedBooking.total_guests} Guest(s)</span>
-                  </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Guest Name:</span>
+                        <span className="font-bold text-slate-900">{selectedBooking.primary_guest_name}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Phone Number:</span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900">{selectedBooking.primary_guest_phone || "Not provided"}</span>
+                          {selectedBooking.primary_guest_phone && (
+                            <a
+                              href={`tel:${selectedBooking.primary_guest_phone}`}
+                              className="text-blue-600 hover:underline text-[11px] font-semibold"
+                            >
+                              Call
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Total Guests:</span>
+                        <span className="font-bold text-slate-900">{selectedBooking.total_guests} Guest(s)</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* 1-Click WhatsApp Confirmation & Room Shift */}
@@ -1336,7 +1529,10 @@ export default function CalendarPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsDetailModalOpen(false)}
+                    onClick={() => {
+                      setIsDetailModalOpen(false);
+                      setIsEditingGuest(false);
+                    }}
                     className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition-colors cursor-pointer"
                   >
                     Close

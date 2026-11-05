@@ -13,6 +13,7 @@ type Booking = {
   check_out_date: string;
   status: string;
   agreed_price?: number | string;
+  payment_mode?: string;
 };
 
 type Guest = {
@@ -78,22 +79,34 @@ function BillsHistoryPage() {
       const { data: guestsData, error: guestsError } = await supabase
         .from("Guests")
         .select("*")
-        .order("id", { ascending: true });
+        .order("id", { ascending: false })
+        .limit(5000);
 
       if (guestsError) throw guestsError;
 
       const merged: MergedBookingData[] = (bookingsData || []).map((booking: Booking) => {
         const relatedGuests = (guestsData || []).filter(
-          (g: Guest) => g.booking_id === booking.id
+          (g: Guest) => String(g.booking_id) === String(booking.id)
         );
         
-        const primaryGuestName = relatedGuests.length > 0 
-          ? relatedGuests[0].name 
-          : "Walk-in Guest";
-          
-        const primaryGuestPhone = relatedGuests.length > 0 
-          ? relatedGuests[0].phone 
+        let primaryGuestName = relatedGuests.length > 0 
+          ? relatedGuests[0].name.trim() 
           : "";
+          
+        let primaryGuestPhone = relatedGuests.length > 0 
+          ? (relatedGuests[0].phone || "").trim() 
+          : "";
+
+        if ((!primaryGuestName || primaryGuestName.toLowerCase() === "walk-in guest" || primaryGuestName.toLowerCase() === "guest") && booking.payment_mode) {
+          const metaMatch = booking.payment_mode.match(/\[Guest:\s*([^|\]]+)(?:\|\s*Phone:\s*([^\]]+))?\]/i)
+            || booking.payment_mode.match(/Guest:\s*([^|,\]]+)/i);
+          if (metaMatch && metaMatch[1]) {
+            primaryGuestName = metaMatch[1].trim();
+            if (metaMatch[2] && !primaryGuestPhone) primaryGuestPhone = metaMatch[2].trim();
+          }
+        }
+
+        if (!primaryGuestName) primaryGuestName = "Walk-in Guest";
 
         return {
           ...booking,

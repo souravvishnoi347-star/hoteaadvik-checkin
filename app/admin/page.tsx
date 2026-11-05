@@ -163,7 +163,8 @@ function AdminDashboard() {
       const { data: guestsData, error: guestsError } = await supabase
         .from("Guests")
         .select("*")
-        .order("id", { ascending: true });
+        .order("id", { ascending: false })
+        .limit(5000);
 
       if (guestsError) throw new Error(guestsError.message);
 
@@ -175,16 +176,28 @@ function AdminDashboard() {
 
       const merged: MergedBookingData[] = (bookingsData || []).map((booking: Booking) => {
         const relatedGuests = (guestsData || []).filter(
-          (g: Guest) => g.booking_id === booking.id
+          (g: Guest) => String(g.booking_id) === String(booking.id)
         );
         
-        const primaryGuestName = relatedGuests.length > 0 
-          ? relatedGuests[0].name 
-          : "Unknown";
-          
-        const primaryGuestPhone = relatedGuests.length > 0 
-          ? relatedGuests[0].phone 
+        let primaryGuestName = relatedGuests.length > 0 
+          ? relatedGuests[0].name.trim() 
           : "";
+          
+        let primaryGuestPhone = relatedGuests.length > 0 
+          ? (relatedGuests[0].phone || "").trim() 
+          : "";
+
+        // Fallback: Parse guest name & phone from payment_mode metadata
+        if ((!primaryGuestName || primaryGuestName.toLowerCase() === "unknown" || primaryGuestName.toLowerCase() === "guest") && booking.payment_mode) {
+          const metaMatch = booking.payment_mode.match(/\[Guest:\s*([^|\]]+)(?:\|\s*Phone:\s*([^\]]+))?\]/i)
+            || booking.payment_mode.match(/Guest:\s*([^|,\]]+)/i);
+          if (metaMatch && metaMatch[1]) {
+            primaryGuestName = metaMatch[1].trim();
+            if (metaMatch[2] && !primaryGuestPhone) primaryGuestPhone = metaMatch[2].trim();
+          }
+        }
+
+        if (!primaryGuestName) primaryGuestName = "Unknown";
 
         let currentStatus = booking.status || 'checked_in';
         const outDate = normalizeDateStr(booking.check_out_date);
