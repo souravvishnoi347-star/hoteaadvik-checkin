@@ -15,6 +15,8 @@ export type Employee = {
   joining_date?: string;
   id_proof_number?: string;
   status: "Active" | "Inactive";
+  advance_balance?: number; // Total remaining advance to be recovered (e.g. 20000)
+  default_monthly_deduction?: number; // e.g. 5000 per month
 };
 
 export type SalaryRecord = {
@@ -31,6 +33,19 @@ export type SalaryRecord = {
   payment_mode: string;
   paid_by: string; // "Amit Sir (Partner 1)", "Partner 2", "Partner 3", "Hotel Cash", etc.
   payment_status: "Paid" | "Partial" | "Advance";
+  notes?: string;
+};
+
+export type EmployeeAdvance = {
+  id: number;
+  created_at: string;
+  employee_id: number;
+  employee_name: string;
+  amount: number;
+  date: string;
+  paid_by: string;
+  payment_mode: string;
+  monthly_deduction_plan?: number;
   notes?: string;
 };
 
@@ -75,11 +90,12 @@ export default function SalariesPage() {
 
   const recentMonths = getRecentMonths();
   const [selectedMonth, setSelectedMonth] = useState<string>(recentMonths[0]);
-  const [activeTab, setActiveTab] = useState<"payroll" | "employees" | "partners">("payroll");
+  const [activeTab, setActiveTab] = useState<"payroll" | "employees" | "advances" | "partners">("payroll");
 
   // State
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
+  const [advances, setAdvances] = useState<EmployeeAdvance[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
 
@@ -96,6 +112,8 @@ export default function SalariesPage() {
   const [empSalary, setEmpSalary] = useState("");
   const [empJoining, setEmpJoining] = useState(new Date().toISOString().split("T")[0]);
   const [empIdProof, setEmpIdProof] = useState("");
+  const [empInitialAdvance, setEmpInitialAdvance] = useState("0");
+  const [empDeductionPlan, setEmpDeductionPlan] = useState("5000");
   const [isSavingEmp, setIsSavingEmp] = useState(false);
 
   // Record Salary Payment Modal State
@@ -111,6 +129,17 @@ export default function SalariesPage() {
   const [payStatus, setPayStatus] = useState<"Paid" | "Partial" | "Advance">("Paid");
   const [payNotes, setPayNotes] = useState("");
   const [isSavingPay, setIsSavingPay] = useState(false);
+
+  // Give Advance Modal State
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [advEmpId, setAdvEmpId] = useState<number | "">("");
+  const [advAmount, setAdvAmount] = useState("20000");
+  const [advPlan, setAdvPlan] = useState("5000");
+  const [advPaidBy, setAdvPaidBy] = useState("Amit Sir (Partner 1)");
+  const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
+  const [advMode, setAdvMode] = useState("Cash");
+  const [advNotes, setAdvNotes] = useState("Salary advance request");
+  const [isSavingAdv, setIsSavingAdv] = useState(false);
 
   // Print voucher modal
   const [viewVoucher, setViewVoucher] = useState<SalaryRecord | null>(null);
@@ -166,6 +195,19 @@ export default function SalariesPage() {
       } else if (salData) {
         setSalaries(salData);
       }
+
+      // 3. Fetch Advances
+      try {
+        const { data: advData } = await supabase
+          .from("EmployeeAdvances")
+          .select("*")
+          .order("date", { ascending: false });
+        if (advData) {
+          setAdvances(advData);
+        }
+      } catch (advE) {
+        console.warn("EmployeeAdvances table notice:", advE);
+      }
     } catch (e: any) {
       console.error("Error loading salary data:", e);
     } finally {
@@ -173,12 +215,22 @@ export default function SalariesPage() {
     }
   };
 
-  // Auto-fill base salary when selecting employee in Payment Modal
+  // Auto-fill salary & advance deduction when selecting employee in Disburse Salary Modal
   const handleSelectEmployeeForPayment = (empId: number) => {
     setPayEmployeeId(empId);
     const emp = employees.find((e) => e.id === empId);
     if (emp) {
       setPayBaseSalary(emp.monthly_salary.toString());
+
+      // If employee has outstanding advance, auto-suggest the monthly deduction!
+      const currentAdvance = Number(emp.advance_balance) || 0;
+      if (currentAdvance > 0) {
+        const monthlyPlan = Number(emp.default_monthly_deduction) || 5000;
+        const suggestedDeduction = Math.min(monthlyPlan, currentAdvance);
+        setPayAdvanceDeduction(suggestedDeduction.toString());
+      } else {
+        setPayAdvanceDeduction("0");
+      }
     }
   };
 
@@ -191,6 +243,12 @@ export default function SalariesPage() {
     return net > 0 ? net : 0;
   };
 
+  // Selected Employee Helper for Payment Modal
+  const selectedPayEmp = employees.find((e) => e.id === payEmployeeId);
+  const selectedPayEmpAdvance = Number(selectedPayEmp?.advance_balance) || 0;
+  const deductionAmount = parseFloat(payAdvanceDeduction) || 0;
+  const remainingAdvanceAfterPayment = Math.max(0, selectedPayEmpAdvance - deductionAmount);
+
   // Handle Save Employee
   const handleSaveEmployee = async () => {
     if (!empName.trim() || !empSalary) {
@@ -199,6 +257,9 @@ export default function SalariesPage() {
     }
 
     setIsSavingEmp(true);
+    const initialAdv = parseFloat(empInitialAdvance) || 0;
+    const plan = parseFloat(empDeductionPlan) || 5000;
+
     try {
       if (editingEmployee) {
         const { error } = await supabase
@@ -209,23 +270,72 @@ export default function SalariesPage() {
             phone: empPhone.trim() || null,
             monthly_salary: parseFloat(empSalary) || 0,
             joining_date: empJoining || null,
-            id_proof_number: empIdProof.trim() || null
+            id_proof_number: empIdProof.trim() || null,
+            advance_balance: initialAdv,
+            default_monthly_deduction: plan
           })
           .eq("id", editingEmployee.id);
 
-        if (error) throw error;
+        if (error) {
+          // Fallback if columns advance_balance not in DB yet
+          if (error.message?.includes("advance_balance")) {
+            await supabase
+              .from("Employees")
+              .update({
+                name: empName.trim(),
+                role: empRole,
+                phone: empPhone.trim() || null,
+                monthly_salary: parseFloat(empSalary) || 0,
+                joining_date: empJoining || null,
+                id_proof_number: empIdProof.trim() || null
+              })
+              .eq("id", editingEmployee.id);
+          } else {
+            throw error;
+          }
+        }
       } else {
-        const { error } = await supabase.from("Employees").insert({
+        const { data: newEmp, error } = await supabase.from("Employees").insert({
           name: empName.trim(),
           role: empRole,
           phone: empPhone.trim() || null,
           monthly_salary: parseFloat(empSalary) || 0,
           joining_date: empJoining || null,
           id_proof_number: empIdProof.trim() || null,
-          status: "Active"
-        });
+          status: "Active",
+          advance_balance: initialAdv,
+          default_monthly_deduction: plan
+        }).select().single();
 
-        if (error) throw error;
+        if (error) {
+          if (error.message?.includes("advance_balance")) {
+            await supabase.from("Employees").insert({
+              name: empName.trim(),
+              role: empRole,
+              phone: empPhone.trim() || null,
+              monthly_salary: parseFloat(empSalary) || 0,
+              joining_date: empJoining || null,
+              id_proof_number: empIdProof.trim() || null,
+              status: "Active"
+            });
+          } else {
+            throw error;
+          }
+        } else if (newEmp && initialAdv > 0) {
+          // Record initial advance entry
+          try {
+            await supabase.from("EmployeeAdvances").insert({
+              employee_id: newEmp.id,
+              employee_name: newEmp.name,
+              amount: initialAdv,
+              date: empJoining,
+              paid_by: "Amit Sir (Partner 1)",
+              payment_mode: "Cash",
+              monthly_deduction_plan: plan,
+              notes: "Initial advance balance recorded during staff entry"
+            });
+          } catch {}
+        }
       }
 
       setIsEmployeeModalOpen(false);
@@ -246,6 +356,8 @@ export default function SalariesPage() {
     setEmpSalary("");
     setEmpJoining(new Date().toISOString().split("T")[0]);
     setEmpIdProof("");
+    setEmpInitialAdvance("0");
+    setEmpDeductionPlan("5000");
   };
 
   const handleEditEmployee = (emp: Employee) => {
@@ -256,6 +368,8 @@ export default function SalariesPage() {
     setEmpSalary(emp.monthly_salary.toString());
     setEmpJoining(emp.joining_date || new Date().toISOString().split("T")[0]);
     setEmpIdProof(emp.id_proof_number || "");
+    setEmpInitialAdvance((emp.advance_balance || 0).toString());
+    setEmpDeductionPlan((emp.default_monthly_deduction || 5000).toString());
     setIsEmployeeModalOpen(true);
   };
 
@@ -273,7 +387,83 @@ export default function SalariesPage() {
     }
   };
 
-  // Handle Record Salary Payment
+  // Handle Giving a New Advance (e.g. ₹20,000 to staff)
+  const handleSaveAdvance = async () => {
+    if (!advEmpId || !advAmount) {
+      alert("Please select employee and enter advance amount.");
+      return;
+    }
+    const emp = employees.find((e) => e.id === advEmpId);
+    if (!emp) return;
+
+    setIsSavingAdv(true);
+    const amountNum = parseFloat(advAmount) || 0;
+    const planNum = parseFloat(advPlan) || 5000;
+
+    try {
+      // 1. Record in EmployeeAdvances table
+      try {
+        await supabase.from("EmployeeAdvances").insert({
+          employee_id: emp.id,
+          employee_name: emp.name,
+          amount: amountNum,
+          date: advDate,
+          paid_by: advPaidBy,
+          payment_mode: advMode,
+          monthly_deduction_plan: planNum,
+          notes: advNotes.trim() || null
+        });
+      } catch (e) {
+        console.warn("EmployeeAdvances insert warning:", e);
+      }
+
+      // 2. Update employee's total advance_balance & default deduction plan
+      const currentBal = Number(emp.advance_balance) || 0;
+      const newBal = currentBal + amountNum;
+
+      const { error: empErr } = await supabase
+        .from("Employees")
+        .update({
+          advance_balance: newBal,
+          default_monthly_deduction: planNum
+        })
+        .eq("id", emp.id);
+
+      if (empErr && empErr.message?.includes("advance_balance")) {
+        alert("Advance recorded! Please run 'supabase_advance_ledger.sql' in your Supabase SQL editor to create the advance tracking columns.");
+      } else if (empErr) {
+        throw empErr;
+      }
+
+      setIsAdvanceModalOpen(false);
+      resetAdvanceForm();
+      fetchData();
+      alert(`✅ Recorded ₹${amountNum.toLocaleString("en-IN")} advance for ${emp.name}! It will automatically deduct ₹${planNum.toLocaleString("en-IN")}/month on salary disbursement.`);
+    } catch (err: any) {
+      alert("Failed to record advance: " + err.message);
+    } finally {
+      setIsSavingAdv(false);
+    }
+  };
+
+  const resetAdvanceForm = () => {
+    setAdvEmpId("");
+    setAdvAmount("20000");
+    setAdvPlan("5000");
+    setAdvPaidBy("Amit Sir (Partner 1)");
+    setAdvDate(new Date().toISOString().split("T")[0]);
+    setAdvMode("Cash");
+    setAdvNotes("Salary advance");
+  };
+
+  // Open advance modal directly for a specific employee
+  const handleOpenAdvanceForEmp = (emp: Employee) => {
+    setAdvEmpId(emp.id);
+    setAdvPlan((emp.default_monthly_deduction || 5000).toString());
+    setIsAdvanceModalOpen(true);
+  };
+
+  // Handle Record Salary Payment (with Auto-Advance Deduction)
   const handleSaveSalaryPayment = async () => {
     if (!payEmployeeId) {
       alert("Please select an employee.");
@@ -284,25 +474,40 @@ export default function SalariesPage() {
     if (!emp) return;
 
     const netAmount = calcNetPay();
+    const deductionNum = parseFloat(payAdvanceDeduction) || 0;
 
     setIsSavingPay(true);
     try {
+      // 1. Record in Salaries table
       const { error } = await supabase.from("Salaries").insert({
         employee_id: emp.id,
         employee_name: emp.name,
         month_year: payMonth,
         base_salary: parseFloat(payBaseSalary) || 0,
-        advance_deduction: parseFloat(payAdvanceDeduction) || 0,
+        advance_deduction: deductionNum,
         bonus_overtime: parseFloat(payBonus) || 0,
         net_paid: netAmount,
         payment_date: payDate,
         payment_mode: payMode,
         paid_by: payPaidBy,
         payment_status: payStatus,
-        notes: payNotes.trim() || null
+        notes: payNotes.trim() ? `${payNotes.trim()}${deductionNum > 0 ? ` (Advance Cut: ₹${deductionNum})` : ''}` : (deductionNum > 0 ? `Advance Cut: ₹${deductionNum}` : null)
       });
 
       if (error) throw error;
+
+      // 2. Automatically decrease employee's advance balance if deduction was applied!
+      if (deductionNum > 0 && emp.advance_balance && emp.advance_balance > 0) {
+        const updatedAdvanceBal = Math.max(0, Number(emp.advance_balance) - deductionNum);
+        try {
+          await supabase
+            .from("Employees")
+            .update({ advance_balance: updatedAdvanceBal })
+            .eq("id", emp.id);
+        } catch (balErr) {
+          console.warn("Advance balance decrement error:", balErr);
+        }
+      }
 
       setIsPaymentModalOpen(false);
       resetPaymentForm();
@@ -336,13 +541,18 @@ export default function SalariesPage() {
     }
   };
 
-  // Calculations for current selected month
+  // Calculations
   const activeEmployees = employees.filter((e) => e.status === "Active");
   const totalMonthlyCommitment = activeEmployees.reduce((sum, e) => sum + (Number(e.monthly_salary) || 0), 0);
 
   const monthSalaries = salaries.filter((s) => s.month_year === selectedMonth);
   const totalMonthPaid = monthSalaries.reduce((sum, s) => sum + (Number(s.net_paid) || 0), 0);
   const pendingMonthBalance = totalMonthlyCommitment > totalMonthPaid ? totalMonthlyCommitment - totalMonthPaid : 0;
+
+  // Advance Metrics across all staff
+  const totalAdvanceOutstanding = employees.reduce((sum, e) => sum + (Number(e.advance_balance) || 0), 0);
+  const employeesWithAdvance = employees.filter((e) => (Number(e.advance_balance) || 0) > 0);
+  const totalAdvanceRecoveredThisMonth = monthSalaries.reduce((sum, s) => sum + (Number(s.advance_deduction) || 0), 0);
 
   // Filtered salary records
   const filteredSalaries = salaries.filter((s) => {
@@ -389,7 +599,7 @@ export default function SalariesPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => alert("Please run the script 'supabase_salary_and_expenses_v2.sql' provided in your project root inside your Supabase Dashboard SQL Editor.")}
+                  onClick={() => alert("Please run 'supabase_advance_ledger.sql' in your Supabase Dashboard SQL Editor.")}
                   className="px-3 py-1.5 bg-amber-600 text-white font-semibold text-xs rounded-xl shadow-xs shrink-0"
                 >
                   View Migration Info
@@ -407,7 +617,7 @@ export default function SalariesPage() {
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Staff & Salaries Ledger</h1>
                     <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                      Employee payroll, monthly disbursements, and 3-partner financial transparency.
+                      Payroll, ₹20k advance recovery, monthly installments, and 3-partner financial tracking.
                     </p>
                   </div>
                 </div>
@@ -416,11 +626,21 @@ export default function SalariesPage() {
               <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
                 <button
                   onClick={() => {
+                    resetAdvanceForm();
+                    setIsAdvanceModalOpen(true);
+                  }}
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-900 font-bold rounded-xl text-xs sm:text-sm shadow-xs transition"
+                >
+                  <span>💸</span> Give Advance
+                </button>
+
+                <button
+                  onClick={() => {
                     resetEmployeeForm();
                     setEditingEmployee(null);
                     setIsEmployeeModalOpen(true);
                   }}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs sm:text-sm shadow-xs transition"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs sm:text-sm shadow-xs transition"
                 >
                   <span>👤+</span> Add Employee
                 </button>
@@ -430,7 +650,7 @@ export default function SalariesPage() {
                     resetPaymentForm();
                     setIsPaymentModalOpen(true);
                   }}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md shadow-indigo-100 transition"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md shadow-indigo-100 transition"
                 >
                   <span>💰</span> Disburse Salary
                 </button>
@@ -446,7 +666,27 @@ export default function SalariesPage() {
                 </div>
                 <p className="text-[11px] text-slate-500 mt-3 flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                  {employees.filter(e => e.status === "Inactive").length} inactive / former staff
+                  {employees.filter(e => e.status === "Inactive").length} inactive staff
+                </p>
+              </div>
+
+              {/* Advance Outstanding Banner */}
+              <div
+                className="bg-gradient-to-br from-amber-500 to-amber-600 p-5 rounded-2xl text-white shadow-xs flex flex-col justify-between cursor-pointer hover:shadow-md transition"
+                onClick={() => setActiveTab("advances")}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <p className="text-amber-100 text-xs font-bold uppercase tracking-wider">Staff Advances Due</p>
+                    <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded-full font-bold">
+                      {employeesWithAdvance.length} Staff
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-black mt-1">₹{totalAdvanceOutstanding.toLocaleString("en-IN")}</h3>
+                </div>
+                <p className="text-[11px] text-amber-100 mt-3 flex items-center justify-between">
+                  <span>Recovered this month:</span>
+                  <span className="font-bold">₹{totalAdvanceRecoveredThisMonth.toLocaleString("en-IN")}</span>
                 </p>
               </div>
 
@@ -458,7 +698,7 @@ export default function SalariesPage() {
                   </div>
                   <h3 className="text-2xl font-black text-slate-800 mt-1">₹{totalMonthlyCommitment.toLocaleString("en-IN")}</h3>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-3">Sum of base monthly salaries</p>
+                <p className="text-[11px] text-slate-500 mt-3">Base monthly salary sum</p>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
@@ -466,27 +706,14 @@ export default function SalariesPage() {
                   <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Paid for {selectedMonth}</p>
                   <h3 className="text-2xl font-black text-emerald-600 mt-1">₹{totalMonthPaid.toLocaleString("en-IN")}</h3>
                 </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-                  <div
-                    className="bg-emerald-500 h-full rounded-full transition-all"
-                    style={{
-                      width: `${totalMonthlyCommitment > 0 ? Math.min(100, Math.round((totalMonthPaid / totalMonthlyCommitment) * 100)) : 0}%`
-                    }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-rose-500 uppercase tracking-wider">Pending Dues</p>
-                  <h3 className="text-2xl font-black text-rose-600 mt-1">₹{pendingMonthBalance.toLocaleString("en-IN")}</h3>
-                </div>
-                <p className="text-[11px] text-slate-400 mt-3">Remaining to disburse this month</p>
+                <p className="text-[11px] text-slate-400 mt-3">
+                  Pending: <span className="font-bold text-rose-500">₹{pendingMonthBalance.toLocaleString("en-IN")}</span>
+                </p>
               </div>
             </div>
 
             {/* Navigation Tabs */}
-            <div className="flex border-b border-slate-200 bg-white rounded-2xl px-3 pt-2 shadow-xs">
+            <div className="flex flex-wrap border-b border-slate-200 bg-white rounded-2xl px-3 pt-2 shadow-xs">
               <button
                 onClick={() => setActiveTab("payroll")}
                 className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition ${
@@ -507,6 +734,17 @@ export default function SalariesPage() {
                 }`}
               >
                 <span>👥</span> Staff Directory ({employees.length})
+              </button>
+
+              <button
+                onClick={() => setActiveTab("advances")}
+                className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition ${
+                  activeTab === "advances"
+                    ? "border-amber-500 text-amber-700 bg-amber-50/50 rounded-t-xl"
+                    : "border-transparent text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                <span>💳</span> Advances Ledger ({employeesWithAdvance.length} Active)
               </button>
 
               <button
@@ -576,7 +814,7 @@ export default function SalariesPage() {
                         <th className="py-3.5 px-4">Date</th>
                         <th className="py-3.5 px-4">Employee</th>
                         <th className="py-3.5 px-4">Month</th>
-                        <th className="py-3.5 px-4">Base / Deduction / Bonus</th>
+                        <th className="py-3.5 px-4">Base / Advance Cut / Bonus</th>
                         <th className="py-3.5 px-4">Net Paid</th>
                         <th className="py-3.5 px-4">Paid By (Partner)</th>
                         <th className="py-3.5 px-4">Mode & Status</th>
@@ -616,10 +854,12 @@ export default function SalariesPage() {
                             <td className="py-3.5 px-4 text-xs">
                               <div>Base: ₹{rec.base_salary.toLocaleString("en-IN")}</div>
                               {rec.advance_deduction > 0 && (
-                                <div className="text-rose-500">- Advance: ₹{rec.advance_deduction.toLocaleString("en-IN")}</div>
+                                <div className="text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                                  - Advance Cut: ₹{rec.advance_deduction.toLocaleString("en-IN")}
+                                </div>
                               )}
                               {rec.bonus_overtime > 0 && (
-                                <div className="text-emerald-600">+ Bonus: ₹{rec.bonus_overtime.toLocaleString("en-IN")}</div>
+                                <div className="text-emerald-600 font-semibold mt-0.5">+ Bonus: ₹{rec.bonus_overtime.toLocaleString("en-IN")}</div>
                               )}
                             </td>
                             <td className="py-3.5 px-4">
@@ -676,83 +916,260 @@ export default function SalariesPage() {
             {/* TAB 2: STAFF DIRECTORY */}
             {activeTab === "employees" && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {employees.map((emp) => (
-                  <div
-                    key={emp.id}
-                    className={`bg-white rounded-3xl p-6 border transition shadow-xs flex flex-col justify-between ${
-                      emp.status === "Active" ? "border-slate-200 hover:shadow-md" : "border-slate-200 opacity-60 bg-slate-50"
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[11px] font-bold uppercase tracking-wider">
-                            {emp.role}
+                {employees.map((emp) => {
+                  const hasAdvance = (Number(emp.advance_balance) || 0) > 0;
+                  return (
+                    <div
+                      key={emp.id}
+                      className={`bg-white rounded-3xl p-6 border transition shadow-xs flex flex-col justify-between ${
+                        emp.status === "Active" ? "border-slate-200 hover:shadow-md" : "border-slate-200 opacity-60 bg-slate-50"
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <span className="px-2.5 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[11px] font-bold uppercase tracking-wider">
+                              {emp.role}
+                            </span>
+                            <h3 className="text-lg font-bold text-slate-900 mt-2">{emp.name}</h3>
+                            <p className="text-xs text-slate-500 mt-0.5">📞 {emp.phone || "No phone recorded"}</p>
+                          </div>
+                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                            emp.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-200 text-slate-600"
+                          }`}>
+                            {emp.status}
                           </span>
-                          <h3 className="text-lg font-bold text-slate-900 mt-2">{emp.name}</h3>
-                          <p className="text-xs text-slate-500 mt-0.5">📞 {emp.phone || "No phone recorded"}</p>
                         </div>
-                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
-                          emp.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-200 text-slate-600"
-                        }`}>
-                          {emp.status}
-                        </span>
-                      </div>
 
-                      <div className="mt-4 pt-4 border-t border-slate-100 space-y-2 text-xs">
-                        <div className="flex justify-between">
-                          <span className="text-slate-400">Monthly Base Salary:</span>
-                          <span className="font-bold text-slate-800 text-sm">₹{emp.monthly_salary.toLocaleString("en-IN")}</span>
-                        </div>
-                        {emp.joining_date && (
-                          <div className="flex justify-between">
-                            <span className="text-slate-400">Joined:</span>
-                            <span className="text-slate-600">{new Date(emp.joining_date).toLocaleDateString("en-IN")}</span>
+                        {/* Advance Alert Banner on Employee Card */}
+                        {hasAdvance && (
+                          <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-amber-900 flex items-center gap-1">
+                                <span>⏳</span> Advance Outstanding:
+                              </span>
+                              <span className="font-black text-amber-900 text-sm">
+                                ₹{Number(emp.advance_balance).toLocaleString("en-IN")}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-amber-700 mt-0.5">
+                              Auto-deduction plan: ₹{Number(emp.default_monthly_deduction || 5000).toLocaleString("en-IN")}/month
+                            </p>
                           </div>
                         )}
-                        {emp.id_proof_number && (
+
+                        <div className="mt-4 pt-4 border-t border-slate-100 space-y-2 text-xs">
                           <div className="flex justify-between">
-                            <span className="text-slate-400">ID Proof / Aadhaar:</span>
-                            <span className="font-mono text-slate-600">{emp.id_proof_number}</span>
+                            <span className="text-slate-400">Monthly Base Salary:</span>
+                            <span className="font-bold text-slate-800 text-sm">₹{emp.monthly_salary.toLocaleString("en-IN")}</span>
                           </div>
-                        )}
+                          {emp.joining_date && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Joined:</span>
+                              <span className="text-slate-600">{new Date(emp.joining_date).toLocaleDateString("en-IN")}</span>
+                            </div>
+                          )}
+                          {emp.id_proof_number && (
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">ID / Aadhaar:</span>
+                              <span className="font-mono text-slate-600">{emp.id_proof_number}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+                        <button
+                          onClick={() => handleToggleEmployeeStatus(emp)}
+                          className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                        >
+                          {emp.status === "Active" ? "Deactivate" : "Activate"}
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleOpenAdvanceForEmp(emp)}
+                            title="Give Advance to this Employee"
+                            className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold rounded-lg text-xs transition"
+                          >
+                            + Advance
+                          </button>
+
+                          <button
+                            onClick={() => handleEditEmployee(emp)}
+                            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs transition"
+                          >
+                            Edit
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              resetPaymentForm();
+                              handleSelectEmployeeForPayment(emp.id);
+                              setIsPaymentModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs shadow-xs transition"
+                          >
+                            Pay Salary
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <button
-                        onClick={() => handleToggleEmployeeStatus(emp)}
-                        className="text-xs font-semibold text-slate-500 hover:text-slate-800"
-                      >
-                        {emp.status === "Active" ? "Deactivate" : "Activate"}
-                      </button>
-
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleEditEmployee(emp)}
-                          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-lg text-xs transition"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => {
-                            resetPaymentForm();
-                            setPayEmployeeId(emp.id);
-                            setPayBaseSalary(emp.monthly_salary.toString());
-                            setIsPaymentModalOpen(true);
-                          }}
-                          className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-xs shadow-xs transition"
-                        >
-                          Pay Salary
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
-            {/* TAB 3: PARTNER SALARY CONTRIBUTIONS */}
+            {/* TAB 3: STAFF ADVANCES (EMI / LOAN RECOVERY LEDGER) */}
+            {activeTab === "advances" && (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                        <span>💳</span> Staff Advance Recovery Ledger (EMI Tracking)
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Manage ₹20,000 or custom advance given to staff. Auto-deducts ₹5,000/month (or custom amount) during monthly salary disbursement.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        resetAdvanceForm();
+                        setIsAdvanceModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs sm:text-sm shadow-xs transition"
+                    >
+                      <span>💸</span> Give New Advance
+                    </button>
+                  </div>
+
+                  {/* Advance Summary Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                    <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl">
+                      <p className="text-xs font-bold text-amber-900 uppercase tracking-wider">Total Advance Outstanding</p>
+                      <h3 className="text-2xl font-black text-amber-900 mt-1">₹{totalAdvanceOutstanding.toLocaleString("en-IN")}</h3>
+                      <p className="text-[11px] text-amber-700 mt-1">Money to be recovered from staff salaries</p>
+                    </div>
+
+                    <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl">
+                      <p className="text-xs font-bold text-emerald-900 uppercase tracking-wider">Recovered This Month ({selectedMonth})</p>
+                      <h3 className="text-2xl font-black text-emerald-800 mt-1">₹{totalAdvanceRecoveredThisMonth.toLocaleString("en-IN")}</h3>
+                      <p className="text-[11px] text-emerald-700 mt-1">Deducted from monthly salary disbursements</p>
+                    </div>
+
+                    <div className="p-4 bg-indigo-50/70 border border-indigo-200 rounded-2xl">
+                      <p className="text-xs font-bold text-indigo-900 uppercase tracking-wider">Staff With Active Advances</p>
+                      <h3 className="text-2xl font-black text-indigo-900 mt-1">{employeesWithAdvance.length} Employees</h3>
+                      <p className="text-[11px] text-indigo-700 mt-1">Currently paying monthly installments</p>
+                    </div>
+                  </div>
+
+                  {/* Staff with Active Advances Table */}
+                  <div className="overflow-x-auto border border-slate-200 rounded-2xl overflow-hidden">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                          <th className="py-3 px-4">Employee</th>
+                          <th className="py-3 px-4">Role</th>
+                          <th className="py-3 px-4">Monthly Salary</th>
+                          <th className="py-3 px-4">Advance Due</th>
+                          <th className="py-3 px-4">Monthly Deduction Plan</th>
+                          <th className="py-3 px-4">Est. Months to Clear</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-xs sm:text-sm text-slate-700">
+                        {employees.map((emp) => {
+                          const advDue = Number(emp.advance_balance) || 0;
+                          const plan = Number(emp.default_monthly_deduction) || 5000;
+                          const monthsLeft = advDue > 0 ? Math.ceil(advDue / plan) : 0;
+
+                          return (
+                            <tr key={emp.id} className={advDue > 0 ? "bg-amber-50/20 hover:bg-amber-50/40" : "hover:bg-slate-50"}>
+                              <td className="py-3.5 px-4 font-bold text-slate-900">
+                                {emp.name}
+                                {advDue > 0 && (
+                                  <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                    Active Loan
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 text-slate-500">{emp.role}</td>
+                              <td className="py-3.5 px-4 font-semibold">₹{emp.monthly_salary.toLocaleString("en-IN")}</td>
+                              <td className="py-3.5 px-4">
+                                {advDue > 0 ? (
+                                  <span className="font-black text-rose-600 text-sm">
+                                    ₹{advDue.toLocaleString("en-IN")}
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-600 font-bold text-xs">✓ Cleared / None</span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 font-semibold text-slate-700">
+                                {advDue > 0 ? `₹${plan.toLocaleString("en-IN")} / month` : "—"}
+                              </td>
+                              <td className="py-3.5 px-4 text-xs font-semibold text-slate-600">
+                                {advDue > 0 ? `${monthsLeft} month(s)` : "—"}
+                              </td>
+                              <td className="py-3.5 px-4 text-right">
+                                <button
+                                  onClick={() => handleOpenAdvanceForEmp(emp)}
+                                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold rounded-lg text-xs transition"
+                                >
+                                  + Give Advance
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* History of Advances Given */}
+                  {advances.length > 0 && (
+                    <div className="mt-8">
+                      <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">
+                        Recent Advances Given (History)
+                      </h3>
+                      <div className="overflow-x-auto border border-slate-200 rounded-2xl overflow-hidden">
+                        <table className="w-full text-left border-collapse text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 border-b border-slate-200 text-slate-400 font-bold uppercase">
+                              <th className="py-2.5 px-3">Date</th>
+                              <th className="py-2.5 px-3">Employee</th>
+                              <th className="py-2.5 px-3">Amount Given</th>
+                              <th className="py-2.5 px-3">Paid By (Partner)</th>
+                              <th className="py-2.5 px-3">Deduction Plan</th>
+                              <th className="py-2.5 px-3">Mode & Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-700">
+                            {advances.map((a) => (
+                              <tr key={a.id} className="hover:bg-slate-50">
+                                <td className="py-2.5 px-3 whitespace-nowrap">{a.date ? new Date(a.date).toLocaleDateString("en-IN") : "—"}</td>
+                                <td className="py-2.5 px-3 font-bold text-slate-800">{a.employee_name}</td>
+                                <td className="py-2.5 px-3 font-black text-rose-600">₹{Number(a.amount).toLocaleString("en-IN")}</td>
+                                <td className="py-2.5 px-3 font-semibold text-indigo-700">{a.paid_by}</td>
+                                <td className="py-2.5 px-3 font-semibold">₹{a.monthly_deduction_plan || 5000}/month</td>
+                                <td className="py-2.5 px-3 text-slate-500">
+                                  <span>{a.payment_mode}</span>
+                                  {a.notes && <span className="ml-1 text-slate-400">({a.notes})</span>}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: PARTNER SALARY CONTRIBUTIONS */}
             {activeTab === "partners" && (
               <div className="space-y-6">
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
@@ -797,7 +1214,7 @@ export default function SalariesPage() {
         </div>
       </main>
 
-      {/* MODAL: ADD / EDIT EMPLOYEE */}
+      {/* MODAL 1: ADD / EDIT EMPLOYEE */}
       {isEmployeeModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95">
@@ -847,6 +1264,33 @@ export default function SalariesPage() {
                     placeholder="e.g. 15000"
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
                   />
+                </div>
+              </div>
+
+              {/* Advance tracking fields on Employee entry */}
+              <div className="p-3 bg-amber-50/70 rounded-2xl border border-amber-200 space-y-2">
+                <p className="text-xs font-bold text-amber-900">Current Advance Balance & Monthly Plan</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-amber-800 uppercase">Advance Taken (₹)</label>
+                    <input
+                      type="number"
+                      value={empInitialAdvance}
+                      onChange={(e) => setEmpInitialAdvance(e.target.value)}
+                      placeholder="e.g. 20000"
+                      className="w-full px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white font-bold outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-amber-800 uppercase">Monthly Deduction (₹)</label>
+                    <input
+                      type="number"
+                      value={empDeductionPlan}
+                      onChange={(e) => setEmpDeductionPlan(e.target.value)}
+                      placeholder="e.g. 5000"
+                      className="w-full px-3 py-1.5 rounded-lg border border-amber-300 text-xs bg-white font-bold outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -903,14 +1347,144 @@ export default function SalariesPage() {
         </div>
       )}
 
-      {/* MODAL: DISBURSE / RECORD SALARY PAYMENT */}
+      {/* MODAL 2: GIVE STAFF ADVANCE (LOAN) */}
+      {isAdvanceModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 my-8">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-amber-50/50">
+              <div>
+                <h3 className="text-lg font-bold text-amber-950 flex items-center gap-1.5">
+                  <span>💸</span> Give Salary Advance to Employee
+                </h3>
+                <p className="text-xs text-amber-800">Record ₹20k advance with ₹5k/month auto-deduction plan.</p>
+              </div>
+              <button
+                onClick={() => setIsAdvanceModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-200/70 hover:bg-slate-200 text-slate-600 flex items-center justify-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Select Staff Member *</label>
+                <select
+                  value={advEmpId}
+                  onChange={(e) => setAdvEmpId(parseInt(e.target.value))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                >
+                  <option value="">-- Choose Employee --</option>
+                  {employees.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name} ({e.role} - Current Advance: ₹{e.advance_balance || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Advance Amount (₹) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={advAmount}
+                    onChange={(e) => setAdvAmount(e.target.value)}
+                    placeholder="e.g. 20000"
+                    className="w-full px-4 py-2.5 rounded-xl border border-amber-300 text-base font-black text-rose-600 outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Monthly Deduction (₹/mo) *</label>
+                  <input
+                    type="number"
+                    required
+                    value={advPlan}
+                    onChange={(e) => setAdvPlan(e.target.value)}
+                    placeholder="e.g. 5000"
+                    className="w-full px-4 py-2.5 rounded-xl border border-amber-300 text-base font-black text-indigo-700 outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-900 leading-relaxed">
+                ℹ️ If you give <strong>₹{Number(advAmount || 0).toLocaleString("en-IN")}</strong> and deduct <strong>₹{Number(advPlan || 5000).toLocaleString("en-IN")} per month</strong>, it will automatically deduct from salary for <strong>{Math.ceil(Number(advAmount || 0) / Number(advPlan || 5000))} months</strong> until balance becomes ₹0.
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5">Paid By (Partner) *</label>
+                  <select
+                    value={advPaidBy}
+                    onChange={(e) => setAdvPaidBy(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 text-xs sm:text-sm font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    {PARTNERS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Payment Mode</label>
+                  <select
+                    value={advMode}
+                    onChange={(e) => setAdvMode(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  >
+                    {PAYMENT_MODES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Date Handed Over</label>
+                  <input
+                    type="date"
+                    value={advDate}
+                    onChange={(e) => setAdvDate(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Reason / Note</label>
+                  <input
+                    type="text"
+                    value={advNotes}
+                    onChange={(e) => setAdvNotes(e.target.value)}
+                    placeholder="e.g. Festival / Medical emergency"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-slate-100 flex gap-2 justify-end bg-slate-50/50">
+              <button
+                onClick={() => setIsAdvanceModalOpen(false)}
+                className="px-4 py-2 border border-slate-200 text-slate-600 text-xs sm:text-sm font-semibold rounded-xl hover:bg-slate-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAdvance}
+                disabled={isSavingAdv || !advEmpId}
+                className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition disabled:opacity-60"
+              >
+                {isSavingAdv ? "Recording..." : "Save Advance Record"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: DISBURSE / RECORD SALARY PAYMENT */}
       {isPaymentModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 my-8">
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div>
-                <h3 className="text-lg font-bold text-slate-800">Disburse Salary Payment</h3>
-                <p className="text-xs text-slate-400">Record staff salary disbursement with partner transparency.</p>
+                <h3 className="text-lg font-bold text-slate-800">Disburse Monthly Salary</h3>
+                <p className="text-xs text-slate-400">Automatic ₹5,000 advance cut (customizable) & net pay computation.</p>
               </div>
               <button
                 onClick={() => setIsPaymentModalOpen(false)}
@@ -951,6 +1525,24 @@ export default function SalariesPage() {
                 </div>
               </div>
 
+              {/* Advance Detection Alert Box */}
+              {selectedPayEmp && selectedPayEmpAdvance > 0 && (
+                <div className="p-3.5 bg-amber-50 border border-amber-300 rounded-2xl">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                      <span>⏳</span> Active Advance Due:
+                    </span>
+                    <span className="text-base font-black text-rose-600">
+                      ₹{selectedPayEmpAdvance.toLocaleString("en-IN")}
+                    </span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-amber-200 flex justify-between items-center text-[11px] text-amber-800">
+                    <span>Deducting this month: <strong>₹{deductionAmount.toLocaleString("en-IN")}</strong></span>
+                    <span>Remaining after payment: <strong>₹{remainingAdvanceAfterPayment.toLocaleString("en-IN")}</strong></span>
+                  </div>
+                </div>
+              )}
+
               {/* Salary Breakdown Inputs */}
               <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/70 space-y-3">
                 <div className="grid grid-cols-3 gap-3">
@@ -964,13 +1556,13 @@ export default function SalariesPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold text-rose-500 uppercase">Advance/Cut (₹)</label>
+                    <label className="block text-[11px] font-bold text-rose-600 uppercase">Advance Cut (₹)</label>
                     <input
                       type="number"
                       value={payAdvanceDeduction}
                       onChange={(e) => setPayAdvanceDeduction(e.target.value)}
                       placeholder="0"
-                      className="w-full px-3 py-2 bg-white rounded-lg border border-slate-200 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
+                      className="w-full px-3 py-2 bg-white rounded-lg border border-rose-300 text-sm font-bold text-rose-700 outline-none focus:ring-2 focus:ring-rose-500"
                     />
                   </div>
                   <div>
@@ -986,16 +1578,16 @@ export default function SalariesPage() {
                 </div>
 
                 <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-600">Net Disbursed Amount:</span>
+                  <span className="text-xs font-bold text-slate-600">Net Salary Paid to Staff:</span>
                   <span className="text-xl font-black text-indigo-700">₹{calcNetPay().toLocaleString("en-IN")}</span>
                 </div>
               </div>
 
-              {/* Partner Who Paid - Key Requirement! */}
+              {/* Partner Who Paid */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5">
-                    Paid By (Partner / Account) *
+                    Paid By (Partner) *
                   </label>
                   <select
                     value={payPaidBy}
@@ -1051,7 +1643,7 @@ export default function SalariesPage() {
                   type="text"
                   value={payNotes}
                   onChange={(e) => setPayNotes(e.target.value)}
-                  placeholder="e.g. Paid via PhonePe / cash hand-over / slip #12"
+                  placeholder="e.g. Paid via GPay / 5k advance deducted"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -1120,8 +1712,8 @@ export default function SalariesPage() {
                   <span className="font-semibold">₹{viewVoucher.base_salary.toLocaleString("en-IN")}</span>
                 </div>
                 {viewVoucher.advance_deduction > 0 && (
-                  <div className="flex justify-between text-rose-500">
-                    <span>Advance / Cut:</span>
+                  <div className="flex justify-between text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded">
+                    <span>Advance Installment Deducted:</span>
                     <span>- ₹{viewVoucher.advance_deduction.toLocaleString("en-IN")}</span>
                   </div>
                 )}
