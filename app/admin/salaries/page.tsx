@@ -31,7 +31,7 @@ export type SalaryRecord = {
   net_paid: number;
   payment_date: string;
   payment_mode: string;
-  paid_by: string; // "Amit Sir (Partner 1)", "Partner 2", "Partner 3", "Hotel Cash", etc.
+  paid_by: string; // "Hotel Cash Drawer", "Hotel Bank Account", "Amit Sir (Owner Personal)"
   payment_status: "Paid" | "Partial" | "Advance";
   notes?: string;
 };
@@ -61,12 +61,10 @@ const ROLES = [
   "Other"
 ];
 
-const PARTNERS = [
-  "Amit Sir (Partner 1)",
-  "Partner 2",
-  "Partner 3",
+export const PAYMENT_ACCOUNTS = [
   "Hotel Cash Drawer",
-  "Hotel Bank Account"
+  "Hotel Bank / QR Account",
+  "Amit Sir (Owner Personal)"
 ];
 
 const PAYMENT_MODES = ["Cash", "UPI (GPay/PhonePe)", "Bank Transfer", "Cheque"];
@@ -90,7 +88,7 @@ export default function SalariesPage() {
 
   const recentMonths = getRecentMonths();
   const [selectedMonth, setSelectedMonth] = useState<string>(recentMonths[0]);
-  const [activeTab, setActiveTab] = useState<"payroll" | "employees" | "advances" | "partners">("payroll");
+  const [activeTab, setActiveTab] = useState<"payroll" | "employees" | "advances">("payroll");
 
   // State
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -101,7 +99,7 @@ export default function SalariesPage() {
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterPayer, setFilterPayer] = useState("All Payers");
+  const [filterAccount, setFilterAccount] = useState("All Accounts");
 
   // Add / Edit Employee Modal State
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -125,7 +123,7 @@ export default function SalariesPage() {
   const [payBonus, setPayBonus] = useState("0");
   const [payDate, setPayDate] = useState(new Date().toISOString().split("T")[0]);
   const [payMode, setPayMode] = useState("Cash");
-  const [payPaidBy, setPayPaidBy] = useState("Amit Sir (Partner 1)");
+  const [payPaidBy, setPayPaidBy] = useState("Hotel Cash Drawer");
   const [payStatus, setPayStatus] = useState<"Paid" | "Partial" | "Advance">("Paid");
   const [payNotes, setPayNotes] = useState("");
   const [isSavingPay, setIsSavingPay] = useState(false);
@@ -135,7 +133,7 @@ export default function SalariesPage() {
   const [advEmpId, setAdvEmpId] = useState<number | "">("");
   const [advAmount, setAdvAmount] = useState("20000");
   const [advPlan, setAdvPlan] = useState("5000");
-  const [advPaidBy, setAdvPaidBy] = useState("Amit Sir (Partner 1)");
+  const [advPaidBy, setAdvPaidBy] = useState("Hotel Cash Drawer");
   const [advDate, setAdvDate] = useState(new Date().toISOString().split("T")[0]);
   const [advMode, setAdvMode] = useState("Cash");
   const [advNotes, setAdvNotes] = useState("Salary advance request");
@@ -329,7 +327,7 @@ export default function SalariesPage() {
               employee_name: newEmp.name,
               amount: initialAdv,
               date: empJoining,
-              paid_by: "Amit Sir (Partner 1)",
+              paid_by: "Hotel Cash Drawer",
               payment_mode: "Cash",
               monthly_deduction_plan: plan,
               notes: "Initial advance balance recorded during staff entry"
@@ -450,7 +448,7 @@ export default function SalariesPage() {
     setAdvEmpId("");
     setAdvAmount("20000");
     setAdvPlan("5000");
-    setAdvPaidBy("Amit Sir (Partner 1)");
+    setAdvPaidBy("Hotel Cash Drawer");
     setAdvDate(new Date().toISOString().split("T")[0]);
     setAdvMode("Cash");
     setAdvNotes("Salary advance");
@@ -526,7 +524,7 @@ export default function SalariesPage() {
     setPayBonus("0");
     setPayDate(new Date().toISOString().split("T")[0]);
     setPayMode("Cash");
-    setPayPaidBy("Amit Sir (Partner 1)");
+    setPayPaidBy("Hotel Cash Drawer");
     setPayStatus("Paid");
     setPayNotes("");
   };
@@ -559,17 +557,8 @@ export default function SalariesPage() {
     const matchesMonth = selectedMonth === "All Months" || s.month_year === selectedMonth;
     const matchesSearch = s.employee_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (s.notes || "").toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesPayer = filterPayer === "All Payers" || s.paid_by === filterPayer;
-    return matchesMonth && matchesSearch && matchesPayer;
-  });
-
-  // Partner Wise Breakdown for selected month
-  const partnerBreakdown = PARTNERS.map((partner) => {
-    const total = monthSalaries
-      .filter((s) => s.paid_by === partner)
-      .reduce((sum, s) => sum + (Number(s.net_paid) || 0), 0);
-    const count = monthSalaries.filter((s) => s.paid_by === partner).length;
-    return { partner, total, count };
+    const matchesAccount = filterAccount === "All Accounts" || s.paid_by === filterAccount;
+    return matchesMonth && matchesSearch && matchesAccount;
   });
 
   if (isCheckingSession) {
@@ -617,7 +606,7 @@ export default function SalariesPage() {
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Staff & Salaries Ledger</h1>
                     <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                      Payroll, ₹20k advance recovery, monthly installments, and 3-partner financial tracking.
+                      Payroll, ₹20k advance recovery, monthly installments, and staff disbursements.
                     </p>
                   </div>
                 </div>
@@ -746,17 +735,6 @@ export default function SalariesPage() {
               >
                 <span>💳</span> Advances Ledger ({employeesWithAdvance.length} Active)
               </button>
-
-              <button
-                onClick={() => setActiveTab("partners")}
-                className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition ${
-                  activeTab === "partners"
-                    ? "border-indigo-600 text-indigo-600"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <span>🤝</span> Partner Contributions
-              </button>
             </div>
 
             {/* TAB 1: PAYROLL / DISBURSEMENT HISTORY */}
@@ -780,15 +758,15 @@ export default function SalariesPage() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Paid By (Partner)</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Disbursed Via</label>
                       <select
-                        value={filterPayer}
-                        onChange={(e) => setFilterPayer(e.target.value)}
+                        value={filterAccount}
+                        onChange={(e) => setFilterAccount(e.target.value)}
                         className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
                       >
-                        <option value="All Payers">All Payers</option>
-                        {PARTNERS.map((p) => (
-                          <option key={p} value={p}>{p}</option>
+                        <option value="All Accounts">All Accounts</option>
+                        {PAYMENT_ACCOUNTS.map((a) => (
+                          <option key={a} value={a}>{a}</option>
                         ))}
                       </select>
                     </div>
@@ -816,7 +794,7 @@ export default function SalariesPage() {
                         <th className="py-3.5 px-4">Month</th>
                         <th className="py-3.5 px-4">Base / Advance Cut / Bonus</th>
                         <th className="py-3.5 px-4">Net Paid</th>
-                        <th className="py-3.5 px-4">Paid By (Partner)</th>
+                        <th className="py-3.5 px-4">Disbursed Via</th>
                         <th className="py-3.5 px-4">Mode & Status</th>
                         <th className="py-3.5 px-4 text-right">Actions</th>
                       </tr>
@@ -1141,7 +1119,7 @@ export default function SalariesPage() {
                               <th className="py-2.5 px-3">Date</th>
                               <th className="py-2.5 px-3">Employee</th>
                               <th className="py-2.5 px-3">Amount Given</th>
-                              <th className="py-2.5 px-3">Paid By (Partner)</th>
+                              <th className="py-2.5 px-3">Disbursed Via</th>
                               <th className="py-2.5 px-3">Deduction Plan</th>
                               <th className="py-2.5 px-3">Mode & Reason</th>
                             </tr>
@@ -1165,47 +1143,6 @@ export default function SalariesPage() {
                       </div>
                     </div>
                   )}
-                </div>
-              </div>
-            )}
-
-            {/* TAB 4: PARTNER SALARY CONTRIBUTIONS */}
-            {activeTab === "partners" && (
-              <div className="space-y-6">
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-800">Partner Salary Disbursed Ledger</h2>
-                      <p className="text-xs text-slate-500">
-                        Tracks which partner paid out of their own pocket vs. hotel cash for <span className="font-bold text-indigo-600">{selectedMonth}</span>.
-                      </p>
-                    </div>
-
-                    <select
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none"
-                    >
-                      {recentMonths.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {partnerBreakdown.map((pb) => (
-                      <div key={pb.partner} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between">
-                        <div>
-                          <p className="text-xs font-bold text-indigo-700 uppercase tracking-wider">{pb.partner}</p>
-                          <h3 className="text-2xl font-black text-slate-900 mt-2">₹{pb.total.toLocaleString("en-IN")}</h3>
-                        </div>
-                        <div className="mt-4 pt-3 border-t border-slate-200/60 flex justify-between text-xs text-slate-500">
-                          <span>Salaries Handled:</span>
-                          <span className="font-semibold text-slate-700">{pb.count} payments</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
                 </div>
               </div>
             )}
@@ -1414,13 +1351,13 @@ export default function SalariesPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5">Paid By (Partner) *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">Disbursed Via (Account) *</label>
                   <select
                     value={advPaidBy}
                     onChange={(e) => setAdvPaidBy(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 text-xs sm:text-sm font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-amber-500"
                   >
-                    {PARTNERS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    {PAYMENT_ACCOUNTS.map((a) => <option key={a} value={a}>{a}</option>)}
                   </select>
                 </div>
                 <div>
@@ -1583,19 +1520,19 @@ export default function SalariesPage() {
                 </div>
               </div>
 
-              {/* Partner Who Paid */}
+              {/* Account Paid From */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5">
-                    Paid By (Partner) *
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Disbursed Via (Account) *
                   </label>
                   <select
                     value={payPaidBy}
                     onChange={(e) => setPayPaidBy(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 text-xs sm:text-sm font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
                   >
-                    {PARTNERS.map((p) => (
-                      <option key={p} value={p}>{p}</option>
+                    {PAYMENT_ACCOUNTS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
                     ))}
                   </select>
                 </div>
@@ -1698,7 +1635,7 @@ export default function SalariesPage() {
                 <span className="text-slate-700">{new Date(viewVoucher.payment_date).toLocaleDateString("en-IN")}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Paid By (Partner):</span>
+                <span className="text-slate-400">Disbursed Via:</span>
                 <span className="font-bold text-indigo-700">{viewVoucher.paid_by}</span>
               </div>
               <div className="flex justify-between">

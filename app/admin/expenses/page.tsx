@@ -31,12 +31,10 @@ export const EXPENSE_CATEGORIES = [
   "Other Miscellaneous"
 ];
 
-export const PARTNERS_LIST = [
-  "Amit Sir (Partner 1)",
-  "Partner 2",
-  "Partner 3",
+export const PAYMENT_ACCOUNTS = [
   "Hotel Cash Drawer",
-  "Hotel Bank Account"
+  "Hotel Bank / QR Account",
+  "Amit Sir (Owner Personal)"
 ];
 
 const CATEGORY_COLORS: { [key: string]: { bg: string; text: string; icon: string } } = {
@@ -62,9 +60,9 @@ export default function ExpensesPage() {
   // Filters
   const [dateFilter, setDateFilter] = useState("This Month");
   const [categoryFilter, setCategoryFilter] = useState("All Categories");
-  const [partnerFilter, setPartnerFilter] = useState("All Payers");
+  const [accountFilter, setAccountFilter] = useState("All Accounts");
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeView, setActiveView] = useState<"records" | "partners" | "analytics">("records");
+  const [activeView, setActiveView] = useState<"records" | "analytics">("records");
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -78,7 +76,7 @@ export default function ExpensesPage() {
   const [formAmount, setFormAmount] = useState("");
   const [formMode, setFormMode] = useState("Cash");
   const [formPaidTo, setFormPaidTo] = useState("");
-  const [formPaidBy, setFormPaidBy] = useState("Amit Sir (Partner 1)");
+  const [formPaidBy, setFormPaidBy] = useState("Hotel Cash Drawer");
   const [formBillNumber, setFormBillNumber] = useState("");
   const [formNotes, setFormNotes] = useState("");
 
@@ -111,14 +109,14 @@ export default function ExpensesPage() {
         .order("date", { ascending: false });
 
       if (!error && data) {
-        // Parse metadata fallbacks if columns didn't exist in early schema
+        // Clean metadata fallbacks if needed
         const normalized: Expense[] = data.map((exp: any) => {
           let paidTo = exp.paid_to || "";
           let paidBy = exp.paid_by || "Hotel Cash Drawer";
           let billNumber = exp.bill_number || "";
           let cleanNotes = exp.notes || "";
 
-          // Check for legacy encoded notes [Paid By: ... | Paid To: ...]
+          // Legacy cleaner
           if (cleanNotes.startsWith("[") && cleanNotes.includes("]")) {
             const closingIdx = cleanNotes.indexOf("]");
             const metaStr = cleanNotes.slice(1, closingIdx);
@@ -161,7 +159,6 @@ export default function ExpensesPage() {
     setIsSaving(true);
     const amountVal = parseFloat(formAmount);
 
-    // Prepare payload
     const expensePayload: any = {
       date: formDate,
       expense_name: formName.trim(),
@@ -175,20 +172,17 @@ export default function ExpensesPage() {
     };
 
     try {
-      // 1. Try insert with full partner fields
       const { error: insertErr } = await supabase.from("Expenses").insert(expensePayload);
 
       if (insertErr) {
-        // If columns 'paid_to' or 'paid_by' don't exist yet in Supabase, fallback to metadata in notes
         if (insertErr.message?.includes("paid_to") || insertErr.message?.includes("paid_by") || insertErr.message?.includes("bill_number")) {
-          const encodedNotes = `[Paid By: ${formPaidBy} | Paid To: ${formPaidTo || 'N/A'} | Bill: ${formBillNumber || 'N/A'}] ${formNotes.trim()}`;
           const fallbackPayload = {
             date: formDate,
             expense_name: formName.trim(),
             category: formCategory,
             amount: amountVal,
             mode: formMode,
-            notes: encodedNotes
+            notes: formNotes.trim() || null
           };
           const { error: fallbackErr } = await supabase.from("Expenses").insert(fallbackPayload);
           if (fallbackErr) throw fallbackErr;
@@ -248,17 +242,17 @@ export default function ExpensesPage() {
     }
 
     const matchesCategory = categoryFilter === "All Categories" || e.category === categoryFilter;
-    const matchesPartner = partnerFilter === "All Payers" || e.paid_by === partnerFilter;
+    const matchesAccount = accountFilter === "All Accounts" || e.paid_by === accountFilter;
     const matchesSearch =
       e.expense_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (e.paid_to || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (e.bill_number || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       (e.notes || "").toLowerCase().includes(searchQuery.toLowerCase());
 
-    return matchesDate && matchesCategory && matchesPartner && matchesSearch;
+    return matchesDate && matchesCategory && matchesAccount && matchesSearch;
   });
 
-  // Analytics Metrics
+  // Metrics
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = expenses.filter((e) => e.date === todayStr).reduce((a, c) => a + Number(c.amount), 0);
 
@@ -268,39 +262,28 @@ export default function ExpensesPage() {
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
   const thisMonthTotal = thisMonthExpenses.reduce((a, c) => a + Number(c.amount), 0);
-  const allTimeTotal = expenses.reduce((a, c) => a + Number(c.amount), 0);
 
-  // Partner Wise Breakdown for current filtered set
-  const partnerBreakdown = PARTNERS_LIST.map((partner) => {
-    const total = filteredExpenses
-      .filter((e) => e.paid_by === partner)
-      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-    const count = filteredExpenses.filter((e) => e.paid_by === partner).length;
-    return { partner, total, count };
-  });
-
-  // Category Breakdown for current filtered set
+  // Category Breakdown
   const categoryBreakdown = EXPENSE_CATEGORIES.map((cat) => {
     const total = filteredExpenses
       .filter((e) => e.category === cat)
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     const count = filteredExpenses.filter((e) => e.category === cat).length;
-    const pct = filteredExpenses.length > 0 && thisMonthTotal > 0
-      ? Math.round((total / filteredExpenses.reduce((a, c) => a + Number(c.amount), 0)) * 100)
-      : 0;
+    const totalFiltered = filteredExpenses.reduce((a, c) => a + Number(c.amount), 0);
+    const pct = totalFiltered > 0 ? Math.round((total / totalFiltered) * 100) : 0;
     return { category: cat, total, count, pct };
   }).filter((c) => c.total > 0).sort((a, b) => b.total - a.total);
 
   // CSV Export
   const exportToCSV = () => {
-    const headers = ["Date", "Expense Title", "Category", "Amount", "Paid To", "Paid By", "Mode", "Bill No", "Notes"];
+    const headers = ["Date", "Expense Title", "Category", "Amount", "Paid Via", "Paid To", "Mode", "Bill No", "Notes"];
     const rows = filteredExpenses.map((e) => [
       e.date,
       `"${e.expense_name.replace(/"/g, '""')}"`,
       `"${e.category}"`,
       e.amount,
-      `"${(e.paid_to || '').replace(/"/g, '""')}"`,
       `"${(e.paid_by || '').replace(/"/g, '""')}"`,
+      `"${(e.paid_to || '').replace(/"/g, '""')}"`,
       e.mode,
       `"${(e.bill_number || '').replace(/"/g, '""')}"`,
       `"${(e.notes || '').replace(/"/g, '""')}"`
@@ -342,7 +325,7 @@ export default function ExpensesPage() {
                   <div>
                     <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-800 tracking-tight">Hotel Expenses & Outflow</h1>
                     <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-                      Rent, maintenance, kitchen, utilities, and 3-partner financial transparency.
+                      Track all hotel expenses — rent, maintenance, food & kitchen, utilities, and daily outflows.
                     </p>
                   </div>
                 </div>
@@ -394,7 +377,7 @@ export default function ExpensesPage() {
               </div>
             </div>
 
-            {/* Navigation Tabs */}
+            {/* Navigation Tabs (2 Clean Tabs: Records & Breakdown) */}
             <div className="flex border-b border-slate-200 bg-white rounded-2xl px-3 pt-2 shadow-xs">
               <button
                 onClick={() => setActiveView("records")}
@@ -405,17 +388,6 @@ export default function ExpensesPage() {
                 }`}
               >
                 <span>📋</span> Expense Records ({filteredExpenses.length})
-              </button>
-
-              <button
-                onClick={() => setActiveView("partners")}
-                className={`flex items-center gap-2 px-5 py-3 text-xs sm:text-sm font-bold border-b-2 transition ${
-                  activeView === "partners"
-                    ? "border-rose-600 text-rose-600"
-                    : "border-transparent text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                <span>🤝</span> Partner Spends & Ledger
               </button>
 
               <button
@@ -463,13 +435,13 @@ export default function ExpensesPage() {
                     </select>
 
                     <select
-                      value={partnerFilter}
-                      onChange={(e) => setPartnerFilter(e.target.value)}
+                      value={accountFilter}
+                      onChange={(e) => setAccountFilter(e.target.value)}
                       className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-rose-500"
                     >
-                      <option value="All Payers">All Payers / Partners</option>
-                      {PARTNERS_LIST.map((p) => (
-                        <option key={p} value={p}>{p}</option>
+                      <option value="All Accounts">All Accounts</option>
+                      {PAYMENT_ACCOUNTS.map((a) => (
+                        <option key={a} value={a}>{a}</option>
                       ))}
                     </select>
                   </div>
@@ -495,7 +467,7 @@ export default function ExpensesPage() {
                         <th className="py-3.5 px-4">Expense Details</th>
                         <th className="py-3.5 px-4">Category</th>
                         <th className="py-3.5 px-4">Amount</th>
-                        <th className="py-3.5 px-4">Paid By (Partner)</th>
+                        <th className="py-3.5 px-4">Paid Via</th>
                         <th className="py-3.5 px-4">Vendor / Bill #</th>
                         <th className="py-3.5 px-4">Mode</th>
                         <th className="py-3.5 px-4 text-right">Actions</th>
@@ -541,8 +513,8 @@ export default function ExpensesPage() {
                                 </span>
                               </td>
                               <td className="py-3.5 px-4">
-                                <span className="px-2.5 py-1 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-lg text-xs font-bold whitespace-nowrap">
-                                  👤 {exp.paid_by || "Hotel Cash"}
+                                <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-semibold whitespace-nowrap">
+                                  💳 {exp.paid_by || "Hotel Cash Drawer"}
                                 </span>
                               </td>
                               <td className="py-3.5 px-4 text-xs">
@@ -603,73 +575,7 @@ export default function ExpensesPage() {
               </div>
             )}
 
-            {/* VIEW 2: PARTNERS SPENDS & CAPITAL TRANSPARENCY */}
-            {activeView === "partners" && (
-              <div className="space-y-6">
-                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-6">
-                    <div>
-                      <h2 className="text-lg font-bold text-slate-800">Partners Expense Accountability Ledger</h2>
-                      <p className="text-xs text-slate-500">
-                        Tracks exact money paid by each of the 3 partners from their own pocket vs. hotel drawer for <span className="font-bold text-rose-600">{dateFilter}</span>.
-                      </p>
-                    </div>
-
-                    <div className="flex gap-2">
-                      {["Today", "This Month", "All Time"].map((f) => (
-                        <button
-                          key={f}
-                          onClick={() => setDateFilter(f)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
-                            dateFilter === f ? "bg-rose-600 text-white" : "bg-slate-100 text-slate-600"
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {partnerBreakdown.map((pb) => (
-                      <div key={pb.partner} className="p-5 rounded-2xl border border-slate-200 bg-slate-50/50 flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider">
-                              {pb.partner}
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-semibold">{pb.count} expenses</span>
-                          </div>
-                          <h3 className="text-2xl font-black text-slate-900 mt-2">₹{pb.total.toLocaleString("en-IN")}</h3>
-                        </div>
-
-                        <div className="mt-4 pt-3 border-t border-slate-200/60 text-xs text-slate-500">
-                          {pb.total > 0 ? (
-                            <span className="text-emerald-700 font-semibold">
-                              ✓ {((pb.total / (filteredExpenses.reduce((a, c) => a + Number(c.amount), 0) || 1)) * 100).toFixed(1)}% of total filtered outflow
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">No expenses recorded</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Partnership Reconciliation Note */}
-                  <div className="mt-6 p-4 bg-indigo-50/60 border border-indigo-100 rounded-2xl">
-                    <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <span>💡</span> Partner Profit & Capital Equalization
-                    </h4>
-                    <p className="text-xs text-indigo-800/80 mt-1 leading-relaxed">
-                      All partners can view every rupee spent. If one partner pays hotel rent or groceries from their personal UPI or cash, it is recorded here under their name so they can be reimbursed directly from the month&apos;s Gross Profits!
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* VIEW 3: CATEGORY ANALYTICS */}
+            {/* VIEW 2: CATEGORY ANALYTICS */}
             {activeView === "analytics" && (
               <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs space-y-6">
                 <div>
@@ -724,7 +630,7 @@ export default function ExpensesPage() {
             <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div>
                 <h3 className="text-lg font-bold text-slate-800">Record New Hotel Expense</h3>
-                <p className="text-xs text-slate-400">Track rent, maintenance, food & partner out-of-pocket costs.</p>
+                <p className="text-xs text-slate-400">Track rent, maintenance, food, utilities & daily outflows.</p>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -798,19 +704,18 @@ export default function ExpensesPage() {
                 </div>
               </div>
 
-              {/* Partner Who Paid - Key Requirement! */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-indigo-900 uppercase tracking-wider mb-1.5">
-                    Paid By (Partner / Account) *
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Paid Via (Account)
                   </label>
                   <select
                     value={formPaidBy}
                     onChange={(e) => setFormPaidBy(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-xl border border-indigo-200 bg-indigo-50/50 text-xs sm:text-sm font-bold text-indigo-900 outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-semibold text-slate-800 outline-none focus:ring-2 focus:ring-rose-500"
                   >
-                    {PARTNERS_LIST.map((p) => (
-                      <option key={p} value={p}>{p}</option>
+                    {PAYMENT_ACCOUNTS.map((a) => (
+                      <option key={a} value={a}>{a}</option>
                     ))}
                   </select>
                 </div>
@@ -842,7 +747,7 @@ export default function ExpensesPage() {
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
-                  placeholder="Any details to keep track for the partners..."
+                  placeholder="Any additional details..."
                   rows={2}
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs sm:text-sm outline-none focus:ring-2 focus:ring-rose-500 resize-none"
                 />
