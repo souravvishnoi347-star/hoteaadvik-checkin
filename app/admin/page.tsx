@@ -739,8 +739,8 @@ function AdminDashboard() {
               );
             })()}
 
-            {/* Financial Overview & 3-Partner Transparency Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {/* Operational & Financial Overview Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
               {/* Expenses Card */}
               <div
                 className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-between cursor-pointer hover:border-rose-300 hover:shadow-md transition"
@@ -776,37 +776,6 @@ function AdminDashboard() {
                   <span className="font-bold text-emerald-600">Paid for {new Date().toLocaleString("en-US", { month: "short" })}</span>
                 </div>
               </div>
-
-              {/* 3-Partners Profit Share Card */}
-              {(() => {
-                const now = new Date();
-                const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-                const thisMonthConfirmedBookings = (data || []).filter((b) => {
-                  const outDate = normalizeDateStr(b.check_out_date);
-                  return (b.status === "Checked-Out" || b.status === "checked_in") && outDate.startsWith(currentMonthPrefix);
-                });
-                const thisMonthRevenue = thisMonthConfirmedBookings.reduce((sum, b) => sum + (Number(b.agreed_price) || 0), 0);
-                const netProfitThisMonth = thisMonthRevenue - totalExpensesThisMonth - totalSalariesThisMonth;
-                const perPartnerShare = Math.round(netProfitThisMonth / 3);
-
-                return (
-                  <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-xl p-5 shadow-sm text-white flex flex-col justify-between">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest">3 Partners Net Profit</p>
-                        <span className="text-xs bg-white/20 px-2 py-0.5 rounded-md font-semibold">🤝 Equal Split</span>
-                      </div>
-                      <h3 className="text-2xl sm:text-3xl font-black tracking-tight">
-                        ₹{netProfitThisMonth.toLocaleString('en-IN')}
-                      </h3>
-                    </div>
-                    <div className="mt-3 pt-3 border-t border-white/20 flex justify-between text-xs text-emerald-100">
-                      <span>Per Partner Share (1/3):</span>
-                      <span className="font-black text-white text-sm">₹{perPartnerShare.toLocaleString('en-IN')}</span>
-                    </div>
-                  </div>
-                );
-              })()}
 
               {/* Agent Outstanding Card */}
               <div
