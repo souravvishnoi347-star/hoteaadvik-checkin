@@ -79,6 +79,8 @@ function AdminDashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalExpensesToday, setTotalExpensesToday] = useState(0);
+  const [totalExpensesThisMonth, setTotalExpensesThisMonth] = useState(0);
+  const [totalSalariesThisMonth, setTotalSalariesThisMonth] = useState(0);
   const [agentOutstanding, setAgentOutstanding] = useState(0);
 
   // Modal State
@@ -240,16 +242,41 @@ function AdminDashboard() {
         })();
       }
 
-      // Fetch today's expenses
+      // Fetch today's and this month's expenses
       const todayDateStr = new Date().toISOString().split('T')[0];
+      const monthStartStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+      
       const { data: expensesData, error: expensesError } = await supabase
         .from("Expenses")
-        .select("amount")
-        .eq("date", todayDateStr);
+        .select("amount, date");
       
       if (!expensesError && expensesData) {
-        const todayExp = expensesData.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        const todayExp = expensesData
+          .filter(e => e.date === todayDateStr)
+          .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
         setTotalExpensesToday(todayExp);
+
+        const monthExp = expensesData
+          .filter(e => e.date >= monthStartStr)
+          .reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
+        setTotalExpensesThisMonth(monthExp);
+      }
+
+      // Fetch this month's staff salaries
+      const currentMonthLabel = now.toLocaleString("en-US", { month: "short", year: "numeric" });
+      try {
+        const { data: salariesData } = await supabase
+          .from("Salaries")
+          .select("net_paid, month_year");
+        
+        if (salariesData) {
+          const monthSal = salariesData
+            .filter(s => s.month_year === currentMonthLabel)
+            .reduce((acc, curr) => acc + (Number(curr.net_paid) || 0), 0);
+          setTotalSalariesThisMonth(monthSal);
+        }
+      } catch (salErr) {
+        console.warn("Salaries fetch notice:", salErr);
       }
 
       // Fetch agents outstanding
@@ -712,23 +739,91 @@ function AdminDashboard() {
               );
             })()}
 
-            {/* Secondary Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm flex flex-col justify-center">
-                <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest mb-2">Today's Expenses</p>
-                <h3 className="text-3xl font-bold text-rose-600">₹{totalExpensesToday.toLocaleString('en-IN')}</h3>
+            {/* Financial Overview & 3-Partner Transparency Stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {/* Expenses Card */}
+              <div
+                className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-between cursor-pointer hover:border-rose-300 hover:shadow-md transition"
+                onClick={() => router.push('/admin/expenses')}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Today&apos;s Expenses</p>
+                    <span className="p-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-bold">🧾 Expenses</span>
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-black text-rose-600">₹{totalExpensesToday.toLocaleString('en-IN')}</h3>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-xs text-slate-500">
+                  <span>This Month Outflow:</span>
+                  <span className="font-bold text-slate-700">₹{totalExpensesThisMonth.toLocaleString('en-IN')}</span>
+                </div>
               </div>
-              
-              <div className="bg-[#0F172A] border border-slate-800 rounded-xl p-6 shadow-md flex flex-col justify-center relative overflow-hidden group cursor-pointer" onClick={() => router.push('/admin/agents')}>
+
+              {/* Salaries Card */}
+              <div
+                className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col justify-between cursor-pointer hover:border-indigo-300 hover:shadow-md transition"
+                onClick={() => router.push('/admin/salaries')}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-slate-500 text-xs font-semibold uppercase tracking-widest">Monthly Salaries</p>
+                    <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-bold">💼 Payroll</span>
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-black text-indigo-600">₹{totalSalariesThisMonth.toLocaleString('en-IN')}</h3>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between text-xs text-slate-500">
+                  <span>Status:</span>
+                  <span className="font-bold text-emerald-600">Paid for {new Date().toLocaleString("en-US", { month: "short" })}</span>
+                </div>
+              </div>
+
+              {/* 3-Partners Profit Share Card */}
+              {(() => {
+                const now = new Date();
+                const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+                const thisMonthConfirmedBookings = (data || []).filter((b) => {
+                  const outDate = normalizeDateStr(b.check_out_date);
+                  return (b.status === "Checked-Out" || b.status === "checked_in") && outDate.startsWith(currentMonthPrefix);
+                });
+                const thisMonthRevenue = thisMonthConfirmedBookings.reduce((sum, b) => sum + (Number(b.agreed_price) || 0), 0);
+                const netProfitThisMonth = thisMonthRevenue - totalExpensesThisMonth - totalSalariesThisMonth;
+                const perPartnerShare = Math.round(netProfitThisMonth / 3);
+
+                return (
+                  <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-xl p-5 shadow-sm text-white flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-emerald-100 text-xs font-bold uppercase tracking-widest">3 Partners Net Profit</p>
+                        <span className="text-xs bg-white/20 px-2 py-0.5 rounded-md font-semibold">🤝 Equal Split</span>
+                      </div>
+                      <h3 className="text-2xl sm:text-3xl font-black tracking-tight">
+                        ₹{netProfitThisMonth.toLocaleString('en-IN')}
+                      </h3>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-white/20 flex justify-between text-xs text-emerald-100">
+                      <span>Per Partner Share (1/3):</span>
+                      <span className="font-black text-white text-sm">₹{perPartnerShare.toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Agent Outstanding Card */}
+              <div
+                className="bg-[#0F172A] border border-slate-800 rounded-xl p-5 shadow-md flex flex-col justify-between relative overflow-hidden group cursor-pointer"
+                onClick={() => router.push('/admin/agents')}
+              >
                 <div className="absolute top-0 right-0 w-32 h-32 bg-[#C5A059]/10 rounded-bl-full -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
                 <div className="relative z-10">
-                  <h3 className="text-lg font-bold text-white mb-1">Agent Outstanding</h3>
-                  <p className="text-slate-400 text-sm mb-4">Total pending commissions</p>
-                  <div className="flex items-center gap-3">
-                    <span className="bg-white text-[#0F172A] px-4 py-1.5 rounded text-sm font-bold">
-                      ₹{agentOutstanding.toLocaleString('en-IN')}
-                    </span>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest">Agent Ledger</p>
+                    <span className="p-1 rounded bg-white/10 text-amber-300 text-[10px] font-bold">Commissions</span>
                   </div>
+                  <h3 className="text-2xl sm:text-3xl font-black text-white">₹{agentOutstanding.toLocaleString('en-IN')}</h3>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-800 flex justify-between text-xs text-slate-400 relative z-10">
+                  <span>Pending Dues</span>
+                  <span className="font-bold text-[#C5A059] flex items-center gap-1">View Agents →</span>
                 </div>
               </div>
             </div>

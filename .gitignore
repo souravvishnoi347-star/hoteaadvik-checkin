@@ -23,6 +23,9 @@
 # misc
 .DS_Store
 *.pem
+.idea/
+android/.idea/
+android/app/build/
 
 # debug
 npm-debug.log*
